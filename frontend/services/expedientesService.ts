@@ -154,6 +154,7 @@ function delay(ms: number) {
 // Swap mock implementations for real API calls via apiClient.
 // The signatures (param/return types) MUST NOT change — only the body.
 //
+// getExpediente    → GET  /api/expedientes/:id → Expediente | null
 // createExpediente → POST /api/expedientes  body: CreateExpedienteRequest
 //   returns: CreateExpedienteResponse (the full Expediente with server-assigned codigo)
 // previewNextCodigo → visual only; real codigo comes from the backend on create
@@ -161,6 +162,12 @@ function delay(ms: number) {
 // getConteos       → GET  /api/expedientes/conteos
 // getHuerfanosPendientes → GET /api/huerfanos/count
 export const expedientesService = {
+  // --- MOCK: replace with apiClient.get<Expediente>(`/expedientes/${id}`) ---
+  async getExpediente(id: string): Promise<Expediente | null> {
+    await delay(300);
+    return MOCK_EXPEDIENTES.find((e) => e.id === id) ?? null;
+  },
+
   // Visual preview only — the real codigo is assigned by the backend on creation.
   previewNextCodigo(): string {
     return generateCodigo();
