@@ -26,6 +26,12 @@
   --color-slate-dot: #8C9AAD;
   --color-slate-bg: #EBEEF2;
   --color-slate-text: #4F5A6B;
+  --color-coral: #E07A5F;
+  --color-coral-bg: #FDF0ED;
+  --color-coral-text: #9B3922;
+  --color-amber: #D97706;
+  --color-amber-bg: #FEF3C7;
+  --color-amber-text: #92400E;
 
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --radius-sm: 0.5rem;
