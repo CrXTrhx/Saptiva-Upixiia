@@ -14,6 +14,7 @@ import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazar
 import SubirDocumentoModal from "@/components/expediente/modals/SubirDocumentoModal";
 import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpedienteModal";
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
+import { Modal } from "@/components/ui/Modal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import type {
@@ -179,13 +180,20 @@ function FauxPdfPage({ tipo }: { tipo: string }) {
   );
 }
 
-function DocPreview({ doc }: { doc: Documento }) {
+function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
   const ext = doc.filename.split(".").pop()?.toUpperCase() ?? "";
   const isPdf = doc.mimeType === "application/pdf" || doc.filename.endsWith(".pdf");
   const isImage = doc.mimeType.startsWith("image/");
 
   return (
-    <div className="group relative rounded-md overflow-hidden shrink-0 w-40 h-52 cursor-zoom-in" style={{ border: "1px solid #E5DED6", backgroundColor: "#FFFFFF" }}>
+    <button
+      type="button"
+      onClick={() => doc.archivoUrl && onOpen(doc)}
+      disabled={!doc.archivoUrl}
+      className="group relative rounded-md overflow-hidden shrink-0 w-40 h-52 cursor-zoom-in"
+      style={{ border: "1px solid #E5DED6", backgroundColor: "#FFFFFF" }}
+      aria-label={`Previsualizar documento ${doc.filename}`}
+    >
       <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider text-white" style={{ backgroundColor: "rgba(48,47,45,0.7)" }}>{ext}</span>
       {isImage && doc.archivoUrl ? (
         <img src={doc.archivoUrl} alt={doc.filename} className="w-full h-full object-cover" />
@@ -197,12 +205,17 @@ function DocPreview({ doc }: { doc: Documento }) {
           <span className="font-mono text-[10px] px-2 text-center truncate w-full" style={{ color: "#989396" }}>{doc.filename}</span>
         </div>
       )}
-    </div>
+      {!doc.archivoUrl && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+          <span className="text-[11px] font-semibold" style={{ color: "#989396" }}>Sin archivo</span>
+        </div>
+      )}
+    </button>
   );
 }
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
-  doc: Documento; onValidar: (id: string) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
+  doc: Documento; onValidar: (id: string) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.pendiente;
   const ccfg = canalConfig[doc.canal];
@@ -210,7 +223,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
 
   return (
     <div className="rounded-lg p-4 flex gap-4 flex-wrap md:flex-nowrap" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
-      <DocPreview doc={doc} />
+      <DocPreview doc={doc} onOpen={onOpen} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{doc.tipo}</span>
@@ -309,9 +322,12 @@ function DetalleContent() {
 
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const handleOpenPreview = useCallback((doc: Documento) => setPreviewDoc(doc), []);
+  const handleClosePreview = useCallback(() => setPreviewDoc(null), []);
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
@@ -624,7 +640,7 @@ function DetalleContent() {
                 >
                   Detalle: {detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} />
+                <DocCard doc={detalleDoc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
               </Card>
             </motion.div>
           )}
@@ -658,7 +674,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} />
+                    <DocCard key={doc.id} doc={doc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
                   ))}
                 </div>
               )}
@@ -863,6 +879,30 @@ function DetalleContent() {
       </AnimatePresence>
 
       {/* MODALS */}
+      {previewDoc && (
+        <Modal open={!!previewDoc} onClose={handleClosePreview} title={`Previsualizar ${previewDoc.filename}`} maxWidth="max-w-4xl">
+          <div className="space-y-4">
+            <div className="text-sm text-[var(--color-text)]" style={{ color: "#5C5957" }}>
+              {previewDoc.tipo} • {previewDoc.canal.toUpperCase()} • {new Date(previewDoc.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+            </div>
+            {previewDoc.archivoUrl ? (
+              previewDoc.mimeType.startsWith("image/") ? (
+                <img src={previewDoc.archivoUrl} alt={previewDoc.filename} className="w-full rounded-xl object-contain" style={{ maxHeight: "70vh" }} />
+              ) : previewDoc.mimeType === "application/pdf" ? (
+                <iframe src={previewDoc.archivoUrl} title={previewDoc.filename} className="w-full h-[70vh] rounded-xl border border-[#E5DED6]" />
+              ) : (
+                <div className="w-full h-[70vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                  <span className="text-sm" style={{ color: "#989396" }}>Tipo de archivo no compatible para previsualizar.</span>
+                </div>
+              )
+            ) : (
+              <div className="w-full h-[70vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                <span className="text-sm" style={{ color: "#989396" }}>No hay archivo disponible para este documento.</span>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
       {modal.type === "validar-rechazar" && (
         <ValidarRechazarModal documento={modal.documento} onValidar={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onRechazar={(motivo) => handleRechazarDoc(modal.documento.id, motivo)} onRevertir={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
       )}
