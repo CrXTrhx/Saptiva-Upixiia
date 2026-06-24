@@ -51,6 +51,17 @@ export type Expediente = {
   ultimaActividad: string;
 };
 
+export type CreateExpedienteRequest = {
+  clienteNombre: string;
+  clienteTelefono: string;
+  clienteCorreo: string;
+  clienteRfc?: string;
+  montoEstimado: number;
+  tipoOperacion: TipoOperacion;
+};
+
+export type CreateExpedienteResponse = Expediente;
+
 export type RangoFecha =
   | { preset: "hoy" | "7dias" | "30dias" }
   | { desde: string; hasta: string };
