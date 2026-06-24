@@ -20,6 +20,12 @@
   --color-error: #D64545;
   --color-error-bg: #FEF2F2;
   --color-error-text: #991B1B;
+  --color-success: #536648;
+  --color-success-bg: #ECF0E8;
+  --color-accent-text-dark: #A86518;
+  --color-slate-dot: #8C9AAD;
+  --color-slate-bg: #EBEEF2;
+  --color-slate-text: #4F5A6B;
 
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --radius-sm: 0.5rem;
