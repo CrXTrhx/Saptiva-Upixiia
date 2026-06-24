@@ -51,6 +51,17 @@ export type Expediente = {
   ultimaActividad: string;
 };
 
+export type CreateExpedienteRequest = {
+  clienteNombre: string;
+  clienteTelefono: string;
+  clienteCorreo: string;
+  clienteRfc?: string;
+  montoEstimado: number;
+  tipoOperacion: TipoOperacion;
+};
+
+export type CreateExpedienteResponse = Expediente;
+
 export type RangoFecha =
   | { preset: "hoy" | "7dias" | "30dias" }
   | { desde: string; hasta: string };
@@ -63,3 +74,92 @@ export type ExpedienteQuery = {
 };
 
 export type ConteoEstados = Record<Estado, number>;
+
+// --- P5 Detail types ---
+export type EstadoDocumento =
+  | "pendiente"
+  | "recibido"
+  | "validado"
+  | "rechazado"
+  | "vencido"
+  | "reemplazado";
+
+export type MotivoRechazoCategoria =
+  | "ilegible"
+  | "tipo_no_coincide"
+  | "vencido"
+  | "otro";
+
+export type MotivoRechazo = {
+  categoria: MotivoRechazoCategoria;
+  texto: string;
+};
+
+export type Canal = "whatsapp" | "correo" | "upload";
+
+export type Documento = {
+  id: string;
+  tipo: DocumentoRequerido;
+  estado: EstadoDocumento;
+  filename: string;
+  archivoUrl?: string;
+  mimeType: string;
+  canal: Canal;
+  remitente: string;
+  fechaRecepcion: string;
+  datosExtraidos?: Record<string, string>;
+  motivoRechazo?: MotivoRechazo;
+  rechazoAutomatico?: boolean;
+  versionAnterior?: Documento;
+};
+
+export type ChecklistItem = {
+  tipo: DocumentoRequerido;
+  estado: EstadoDocumento;
+  documentoId?: string;
+};
+
+export type PrioridadNextStep = "alta" | "media" | "baja";
+
+export type NextStep = {
+  id: string;
+  texto: string;
+  prioridad: PrioridadNextStep;
+};
+
+export type TonoEvento = "ok" | "warn" | "accent" | "neutral";
+
+export type Evento = {
+  id: string;
+  tipo: string;
+  descripcion: string;
+  timestamp: string;
+  tono: TonoEvento;
+};
+
+export type Nota = {
+  id: string;
+  texto: string;
+  autor: string;
+  timestamp: string;
+};
+
+export type ConsultaLLM = {
+  id: string;
+  pregunta: string;
+  respuesta: "si" | "no";
+  razon: string;
+  disclaimer: string;
+};
+
+export type ExpedienteDetalle = {
+  expediente: Expediente & {
+    montoEstimado: number;
+    tipoOperacion: TipoOperacion;
+  };
+  checklist: ChecklistItem[];
+  documentos: Documento[];
+  nextSteps: NextStep[];
+  historial: Evento[];
+  notas: Nota[];
+};

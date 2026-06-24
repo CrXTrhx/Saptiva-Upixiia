@@ -1,9 +1,23 @@
 import type {
   ConteoEstados,
+  CreateExpedienteRequest,
+  CreateExpedienteResponse,
   Expediente,
   ExpedienteQuery,
   Estado,
   RangoFecha,
+  ExpedienteDetalle,
+  Documento,
+  ChecklistItem,
+  NextStep,
+  Evento,
+  Nota,
+  ConsultaLLM,
+  MotivoRechazo,
+  DocumentoRequerido,
+  EstadoDocumento,
+  Canal,
+  TipoOperacion,
 } from "@/lib/types";
 
 // --- Priority sort (business rule: urgents first, then validation, then missing docs, then rest) ---
@@ -137,16 +151,127 @@ const MOCK_EXPEDIENTES: Expediente[] = [
 ];
 
 const MOCK_HUERFANOS_PENDIENTES = 12;
+let mockIdCounter = MOCK_EXPEDIENTES.length + 1;
+
+function generateCodigo(): string {
+  const year = new Date().getFullYear();
+  const seq = String(mockIdCounter).padStart(5, "0");
+  return `EXP-${year}-${seq}`;
+}
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Swap this implementation for real API calls via apiClient.
-// getExpedientes → GET /api/expedientes?search=X&estado=Y&desde=Z&hasta=W&doc_faltante=INE
-// getConteos     → GET /api/expedientes/conteos
+const MOCK_CHECKLIST: ChecklistItem[] = [
+  { tipo: "INE", estado: "validado", documentoId: "doc-1" },
+  { tipo: "CURP", estado: "recibido", documentoId: "doc-2" },
+  { tipo: "CSF", estado: "rechazado", documentoId: "doc-3" },
+  { tipo: "comprobante", estado: "pendiente" },
+];
+
+const MOCK_DOCUMENTOS: Documento[] = [
+  {
+    id: "doc-1", tipo: "INE", estado: "validado", filename: "ine-frente.jpg",
+    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=INE+Frente",
+    mimeType: "image/jpeg", canal: "whatsapp", remitente: "Sofía Ramírez",
+    fechaRecepcion: new Date(Date.now() - 5 * 86400000).toISOString(),
+    datosExtraidos: { "Nombre": "Sofía Ramírez López", "CURP": "RALS900101MDFRPR09", "Vigencia": "2030" },
+  },
+  {
+    id: "doc-2", tipo: "CURP", estado: "recibido", filename: "curp-sofia.pdf",
+    archivoUrl: "/curp-sofia.pdf",
+    mimeType: "application/pdf", canal: "correo", remitente: "sofia@mail.com",
+    fechaRecepcion: new Date(Date.now() - 3 * 86400000).toISOString(),
+    datosExtraidos: { "CURP": "RALS900101MDFRPR09", "Nombre": "Sofía Ramírez López" },
+  },
+  {
+    id: "doc-3", tipo: "CSF", estado: "rechazado", filename: "csf-sofia.pdf",
+    archivoUrl: "/csf-sofia.pdf",
+    mimeType: "application/pdf", canal: "whatsapp", remitente: "Sofía Ramírez",
+    fechaRecepcion: new Date(Date.now() - 2 * 86400000).toISOString(),
+    motivoRechazo: { categoria: "vencido", texto: "La constancia tiene más de 3 meses de antigüedad" },
+    rechazoAutomatico: true,
+  },
+  {
+    id: "doc-4", tipo: "INE", estado: "reemplazado", filename: "ine-vieja.jpg",
+    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=INE+Anterior",
+    mimeType: "image/jpeg", canal: "whatsapp", remitente: "Sofía Ramírez",
+    fechaRecepcion: new Date(Date.now() - 10 * 86400000).toISOString(),
+  },
+];
+
+const MOCK_NEXT_STEPS: NextStep[] = [
+  { id: "ns-1", texto: "Solicitar nueva CSF al cliente (rechazada por vencimiento)", prioridad: "alta" },
+  { id: "ns-2", texto: "Validar CURP recibida", prioridad: "alta" },
+  { id: "ns-3", texto: "Solicitar comprobante de domicilio", prioridad: "media" },
+  { id: "ns-4", texto: "Revisar datos extraídos de INE", prioridad: "baja" },
+];
+
+const MOCK_HISTORIAL: Evento[] = [
+  { id: "ev-1", tipo: "expediente_creado", descripcion: "Expediente creado por Ana López", timestamp: new Date(Date.now() - 15 * 86400000).toISOString(), tono: "accent" },
+  { id: "ev-2", tipo: "instrucciones_enviadas", descripcion: "Instrucciones enviadas al cliente vía WhatsApp", timestamp: new Date(Date.now() - 14 * 86400000).toISOString(), tono: "neutral" },
+  { id: "ev-3", tipo: "documento_recibido", descripcion: "INE recibida vía WhatsApp", timestamp: new Date(Date.now() - 10 * 86400000).toISOString(), tono: "ok" },
+  { id: "ev-4", tipo: "documento_reemplazado", descripcion: "INE reemplazada por nueva versión", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), tono: "neutral" },
+  { id: "ev-5", tipo: "documento_validado", descripcion: "INE validada por Ana López", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), tono: "ok" },
+  { id: "ev-6", tipo: "documento_recibido", descripcion: "CURP recibida vía correo", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), tono: "ok" },
+  { id: "ev-7", tipo: "documento_recibido", descripcion: "CSF recibida vía WhatsApp", timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), tono: "ok" },
+  { id: "ev-8", tipo: "documento_rechazado", descripcion: "CSF rechazada automáticamente: constancia vencida", timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), tono: "warn" },
+  { id: "ev-9", tipo: "recordatorio_enviado", descripcion: "Recordatorio enviado al cliente para CSF y comprobante", timestamp: new Date(Date.now() - 1 * 86400000).toISOString(), tono: "neutral" },
+];
+
+const MOCK_NOTAS: Nota[] = [
+  { id: "nota-1", texto: "Cliente contactado por teléfono, enviará CSF actualizada esta semana.", autor: "Ana López", timestamp: new Date(Date.now() - 1 * 86400000).toISOString() },
+  { id: "nota-2", texto: "Verificar con el cliente si el comprobante puede ser estado de cuenta bancario.", autor: "Luis Pérez", timestamp: new Date(Date.now() - 3 * 86400000).toISOString() },
+];
+
+// Swap mock implementations for real API calls via apiClient.
+// The signatures (param/return types) MUST NOT change — only the body.
+//
+// getExpediente    → GET  /api/expedientes/:id → Expediente | null
+// createExpediente → POST /api/expedientes  body: CreateExpedienteRequest
+//   returns: CreateExpedienteResponse (the full Expediente with server-assigned codigo)
+// previewNextCodigo → visual only; real codigo comes from the backend on create
+// getExpedientes   → GET  /api/expedientes?search=X&estado=Y&desde=Z&hasta=W&doc_faltante=INE
+// getConteos       → GET  /api/expedientes/conteos
 // getHuerfanosPendientes → GET /api/huerfanos/count
 export const expedientesService = {
+  // --- MOCK: replace with apiClient.get<Expediente>(`/expedientes/${id}`) ---
+  async getExpediente(id: string): Promise<Expediente | null> {
+    await delay(300);
+    return MOCK_EXPEDIENTES.find((e) => e.id === id) ?? null;
+  },
+
+  // Visual preview only — the real codigo is assigned by the backend on creation.
+  previewNextCodigo(): string {
+    return generateCodigo();
+  },
+
+  async createExpediente(
+    req: CreateExpedienteRequest,
+  ): Promise<CreateExpedienteResponse> {
+    // --- MOCK: replace with apiClient.post<CreateExpedienteResponse>("/expedientes", req) ---
+    await delay(800);
+    const now = new Date().toISOString();
+    const exp: Expediente = {
+      id: String(mockIdCounter),
+      codigo: generateCodigo(),
+      clienteNombre: req.clienteNombre,
+      clienteRfc: req.clienteRfc,
+      clienteTelefono: req.clienteTelefono,
+      clienteCorreo: req.clienteCorreo,
+      fechaCreacion: now,
+      estado: "en_captura",
+      nextStepPrioritario: "Enviar instrucciones al cliente",
+      capturista: "Administrador",
+      documentosFaltantes: ["INE", "CURP", "CSF", "comprobante"],
+      ultimaActividad: now,
+    };
+    mockIdCounter++;
+    MOCK_EXPEDIENTES.push(exp);
+    return exp;
+  },
+
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
     await delay(400);
     const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
@@ -173,5 +298,91 @@ export const expedientesService = {
   async getHuerfanosPendientes(): Promise<number> {
     await delay(100);
     return MOCK_HUERFANOS_PENDIENTES;
+  },
+
+  // --- P5 Detail ---
+  // GET /api/expedientes/:id/detalle
+  async getExpedienteDetalle(id: string): Promise<ExpedienteDetalle | null> {
+    await delay(400);
+    const exp = MOCK_EXPEDIENTES.find((e) => e.id === id);
+    if (!exp) return null;
+    return {
+      expediente: { ...exp, montoEstimado: 350000, tipoOperacion: "blindaje" as TipoOperacion },
+      checklist: MOCK_CHECKLIST,
+      documentos: MOCK_DOCUMENTOS,
+      nextSteps: MOCK_NEXT_STEPS,
+      historial: MOCK_HISTORIAL,
+      notas: MOCK_NOTAS,
+    };
+  },
+
+  // PATCH /api/documentos/:id/validar
+  async validarDocumento(docId: string): Promise<Documento> {
+    await delay(500);
+    return { ...MOCK_DOCUMENTOS.find(d => d.id === docId)!, estado: "validado" };
+  },
+
+  // PATCH /api/documentos/:id/rechazar
+  async rechazarDocumento(docId: string, motivo: MotivoRechazo): Promise<Documento> {
+    await delay(500);
+    return { ...MOCK_DOCUMENTOS.find(d => d.id === docId)!, estado: "rechazado", motivoRechazo: motivo };
+  },
+
+  // POST /api/documentos/:id/reemplazar
+  async reemplazarDocumento(docId: string, _archivo: File): Promise<Documento> {
+    await delay(800);
+    const old = MOCK_DOCUMENTOS.find(d => d.id === docId)!;
+    return { ...old, id: "doc-new-" + Date.now(), estado: "recibido", filename: "reemplazo.pdf", fechaRecepcion: new Date().toISOString(), versionAnterior: { ...old, estado: "reemplazado" as EstadoDocumento } };
+  },
+
+  // POST /api/expedientes/:id/documentos
+  async subirDocumentoManual(expedienteId: string, tipo: DocumentoRequerido, _archivo: File): Promise<Documento> {
+    await delay(800);
+    return { id: "doc-manual-" + Date.now(), tipo, estado: "recibido", filename: "documento-manual.pdf", mimeType: "application/pdf", canal: "upload" as Canal, remitente: "Administrador", fechaRecepcion: new Date().toISOString() };
+  },
+
+  // PATCH /api/expedientes/:id/completar
+  async marcarCompleto(id: string): Promise<Expediente> {
+    await delay(500);
+    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
+    return { ...exp, estado: "completo" as Estado };
+  },
+
+  // PATCH /api/expedientes/:id/archivar
+  async archivar(id: string): Promise<Expediente> {
+    await delay(500);
+    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
+    return { ...exp, estado: "archivado" as Estado };
+  },
+
+  // PATCH /api/expedientes/:id/cancelar
+  async cancelarExpediente(id: string, _motivo: string): Promise<Expediente> {
+    await delay(500);
+    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
+    return { ...exp, estado: "cancelado" as Estado };
+  },
+
+  // POST /api/expedientes/:id/reenviar-instrucciones
+  async reenviarInstrucciones(_id: string): Promise<void> {
+    await delay(600);
+  },
+
+  // POST /api/expedientes/:id/notas
+  async agregarNota(_expedienteId: string, texto: string): Promise<Nota> {
+    await delay(300);
+    return { id: "nota-" + Date.now(), texto, autor: "Administrador", timestamp: new Date().toISOString() };
+  },
+
+  // POST /api/expedientes/:id/consulta-llm
+  async consultarLLM(_expedienteId: string, pregunta: string): Promise<ConsultaLLM> {
+    await delay(1200);
+    const esSAT = pregunta.includes("SAT");
+    return {
+      id: "llm-" + Date.now(),
+      pregunta,
+      respuesta: esSAT ? "si" : "no",
+      razon: esSAT ? "El monto supera el umbral de identificación para blindaje según la LFPIORPI." : "El monto y tipo de operación permiten pago en efectivo sin restricción.",
+      disclaimer: "Respuesta orientativa. Decisión final del Representante de Cumplimiento.",
+    };
   },
 };
