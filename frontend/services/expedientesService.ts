@@ -180,13 +180,14 @@ const MOCK_DOCUMENTOS: Documento[] = [
   },
   {
     id: "doc-2", tipo: "CURP", estado: "recibido", filename: "curp-sofia.pdf",
-    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=CURP+PDF",
+    archivoUrl: "/curp-sofia.pdf",
     mimeType: "application/pdf", canal: "correo", remitente: "sofia@mail.com",
     fechaRecepcion: new Date(Date.now() - 3 * 86400000).toISOString(),
     datosExtraidos: { "CURP": "RALS900101MDFRPR09", "Nombre": "Sofía Ramírez López" },
   },
   {
     id: "doc-3", tipo: "CSF", estado: "rechazado", filename: "csf-sofia.pdf",
+    archivoUrl: "/csf-sofia.pdf",
     mimeType: "application/pdf", canal: "whatsapp", remitente: "Sofía Ramírez",
     fechaRecepcion: new Date(Date.now() - 2 * 86400000).toISOString(),
     motivoRechazo: { categoria: "vencido", texto: "La constancia tiene más de 3 meses de antigüedad" },
