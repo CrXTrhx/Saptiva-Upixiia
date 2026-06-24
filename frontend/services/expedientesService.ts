@@ -1,5 +1,7 @@
 import type {
   ConteoEstados,
+  CreateExpedienteRequest,
+  CreateExpedienteResponse,
   Expediente,
   ExpedienteQuery,
   Estado,
@@ -137,16 +139,58 @@ const MOCK_EXPEDIENTES: Expediente[] = [
 ];
 
 const MOCK_HUERFANOS_PENDIENTES = 12;
+let mockIdCounter = MOCK_EXPEDIENTES.length + 1;
+
+function generateCodigo(): string {
+  const year = new Date().getFullYear();
+  const seq = String(mockIdCounter).padStart(5, "0");
+  return `EXP-${year}-${seq}`;
+}
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Swap this implementation for real API calls via apiClient.
-// getExpedientes → GET /api/expedientes?search=X&estado=Y&desde=Z&hasta=W&doc_faltante=INE
-// getConteos     → GET /api/expedientes/conteos
+// Swap mock implementations for real API calls via apiClient.
+// The signatures (param/return types) MUST NOT change — only the body.
+//
+// createExpediente → POST /api/expedientes  body: CreateExpedienteRequest
+//   returns: CreateExpedienteResponse (the full Expediente with server-assigned codigo)
+// previewNextCodigo → visual only; real codigo comes from the backend on create
+// getExpedientes   → GET  /api/expedientes?search=X&estado=Y&desde=Z&hasta=W&doc_faltante=INE
+// getConteos       → GET  /api/expedientes/conteos
 // getHuerfanosPendientes → GET /api/huerfanos/count
 export const expedientesService = {
+  // Visual preview only — the real codigo is assigned by the backend on creation.
+  previewNextCodigo(): string {
+    return generateCodigo();
+  },
+
+  async createExpediente(
+    req: CreateExpedienteRequest,
+  ): Promise<CreateExpedienteResponse> {
+    // --- MOCK: replace with apiClient.post<CreateExpedienteResponse>("/expedientes", req) ---
+    await delay(800);
+    const now = new Date().toISOString();
+    const exp: Expediente = {
+      id: String(mockIdCounter),
+      codigo: generateCodigo(),
+      clienteNombre: req.clienteNombre,
+      clienteRfc: req.clienteRfc,
+      clienteTelefono: req.clienteTelefono,
+      clienteCorreo: req.clienteCorreo,
+      fechaCreacion: now,
+      estado: "en_captura",
+      nextStepPrioritario: "Enviar instrucciones al cliente",
+      capturista: "Administrador",
+      documentosFaltantes: ["INE", "CURP", "CSF", "comprobante"],
+      ultimaActividad: now,
+    };
+    mockIdCounter++;
+    MOCK_EXPEDIENTES.push(exp);
+    return exp;
+  },
+
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
     await delay(400);
     const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);

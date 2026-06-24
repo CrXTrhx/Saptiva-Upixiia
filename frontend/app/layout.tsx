@@ -26,7 +26,9 @@ export default function RootLayout({
   return (
     <html
       lang="es"
+      data-theme="light"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      style={{ colorScheme: "light" }}
     >
       <body className="min-h-full flex flex-col">
         <AuthProvider>{children}</AuthProvider>
