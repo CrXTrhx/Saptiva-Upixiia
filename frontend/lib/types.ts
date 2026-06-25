@@ -110,6 +110,8 @@ export type MotivoRechazoCategoria =
   | "ilegible"
   | "tipo_no_coincide"
   | "vencido"
+  | "datos_no_coinciden"
+  | "incompleto"
   | "otro";
 
 export type MotivoRechazo = {

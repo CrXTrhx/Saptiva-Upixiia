@@ -290,6 +290,28 @@ export const expedientesService = {
     return exp;
   },
 
+  // PATCH /api/expedientes/:id  → actualizar datos del cliente del expediente
+  async actualizarExpediente(
+    id: string,
+    datos: {
+      clienteNombre: string;
+      clienteTelefono: string;
+      clienteCorreo: string;
+      clienteRfc?: string;
+      montoEstimado: number;
+      tipoOperacion: TipoOperacion;
+    },
+  ): Promise<Expediente> {
+    // --- MOCK: replace with apiClient.patch<Expediente>(`/expedientes/${id}`, datos) ---
+    await delay(500);
+    const idx = MOCK_EXPEDIENTES.findIndex((e) => e.id === id);
+    if (idx >= 0) {
+      MOCK_EXPEDIENTES[idx] = { ...MOCK_EXPEDIENTES[idx], ...datos };
+      return MOCK_EXPEDIENTES[idx];
+    }
+    return { ...MOCK_EXPEDIENTES[0], ...datos, id };
+  },
+
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
     await delay(400);
     const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
