@@ -185,6 +185,33 @@ def rechazar_documento(
     return doc
 
 
+def revertir_rechazo(db: Session, doc: Document, user: AppUser) -> Document:
+    """Revierte un rechazo (PRD §5): el documento vuelve a 'recibido'."""
+    if doc.status_code != DocStatus.REJECTED:
+        raise ConflictError("El documento no esta rechazado")
+    doc.status_code = DocStatus.RECEIVED
+    doc.rejection_reason_code = None
+    doc.rejection_note = None
+    doc.is_auto_rejected = 0
+    db.flush()
+
+    doc_type = doc.detected_type_code or doc.declared_type_code
+    item = _checklist_item(db, doc.case_file_id, doc_type)
+    if item and item.status_code != ChecklistStatus.VALIDATED:
+        item.status_code = ChecklistStatus.RECEIVED
+        item.current_document_id = doc.id
+        db.flush()
+
+    case = db.get(CaseFile, doc.case_file_id)
+    registrar_evento(
+        db, case.id, EventType.AUTO_REJECT_REVERTED,
+        f"Rechazo revertido por {user.full_name} para documento {doc_type or ''}",
+        actor=user.email, actor_user_id=user.id,
+    )
+    ns.recompute(db, case)
+    return doc
+
+
 def reemplazar_documento(
     db: Session,
     doc: Document,

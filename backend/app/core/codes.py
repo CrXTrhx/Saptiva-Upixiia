@@ -86,6 +86,7 @@ class OperationType:
 
 class EventType:
     CASE_CREATED = "CASE_CREATED"
+    CASE_UPDATED = "CASE_UPDATED"
     STATUS_CHANGED = "STATUS_CHANGED"
     DOCUMENT_RECEIVED = "DOCUMENT_RECEIVED"
     DOCUMENT_VALIDATED = "DOCUMENT_VALIDATED"
@@ -119,6 +120,7 @@ CHECKLIST_DOC_TYPES = [
 # Tono del evento para la UI del timeline (frontend: ok | warn | accent | neutral)
 EVENT_TONE = {
     EventType.CASE_CREATED: "accent",
+    EventType.CASE_UPDATED: "neutral",
     EventType.STATUS_CHANGED: "neutral",
     EventType.DOCUMENT_RECEIVED: "ok",
     EventType.DOCUMENT_VALIDATED: "ok",

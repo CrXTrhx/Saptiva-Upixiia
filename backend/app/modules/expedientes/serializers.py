@@ -9,6 +9,7 @@ from app.core.codes import (
     ChecklistStatus,
     DocStatus,
 )
+from app.integrations import storage
 from app.models import (
     AppUser,
     CaseChecklistItem,
@@ -92,7 +93,7 @@ def serialize_documento(db: Session, doc: Document, with_version: bool = True) -
         "tipo": doc.detected_type_code or doc.declared_type_code or "OTHER",
         "estado": doc.status_code,
         "filename": doc.file_name or "documento",
-        "archivoUrl": doc.file_url,
+        "archivoUrl": storage.resolve_url(doc.file_url),
         "mimeType": doc.mime_type or "application/octet-stream",
         "canal": doc.channel_code,
         "remitente": doc.sender or "",

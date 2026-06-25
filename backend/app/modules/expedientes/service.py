@@ -100,6 +100,38 @@ def create_expediente(
     return case
 
 
+def editar_expediente(db: Session, case: CaseFile, body, user: AppUser) -> CaseFile:
+    """Actualiza datos del cliente/operacion (solo los campos provistos)."""
+    cambios: list[str] = []
+    if body.cliente_nombre is not None:
+        case.client_name = body.cliente_nombre.strip()
+        cambios.append("nombre")
+    if body.cliente_telefono is not None:
+        case.client_phone = body.cliente_telefono.strip()
+        cambios.append("telefono")
+    if body.cliente_correo is not None:
+        case.client_email = str(body.cliente_correo)
+        cambios.append("correo")
+    if body.cliente_rfc is not None:
+        case.client_rfc = body.cliente_rfc or None
+        cambios.append("rfc")
+    if body.monto_estimado is not None:
+        case.estimated_amount = body.monto_estimado
+        cambios.append("monto")
+    op_code = body.operation_type_code()
+    if op_code is not None:
+        case.operation_type_code = op_code
+        cambios.append("tipo de operacion")
+    case.updated_by = user.id
+    db.flush()
+    registrar_evento(
+        db, case.id, EventType.CASE_UPDATED,
+        f"Datos actualizados ({', '.join(cambios) or 'sin cambios'})",
+        actor=user.email, actor_user_id=user.id,
+    )
+    return case
+
+
 def list_expedientes(
     db: Session,
     *,

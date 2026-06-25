@@ -26,6 +26,28 @@ class CreateExpedienteRequest(CamelModel):
         return mapping.get(key.lower(), key.upper())
 
 
+class EditExpedienteRequest(CamelModel):
+    """Edicion de datos del cliente/operacion (Flujo C). Todos opcionales."""
+    cliente_nombre: str | None = Field(default=None, min_length=2, max_length=255)
+    cliente_telefono: str | None = Field(default=None, max_length=30)
+    cliente_correo: EmailStr | None = None
+    cliente_rfc: str | None = Field(default=None, max_length=13)
+    monto_estimado: float | None = Field(default=None, gt=0)
+    tipo_operacion: str | None = None
+
+    def operation_type_code(self) -> str | None:
+        if not self.tipo_operacion:
+            return None
+        mapping = {
+            "blindaje": OperationType.ARMORING,
+            "venta_vehiculo": OperationType.VEHICLE_SALE,
+            "armoring": OperationType.ARMORING,
+            "vehicle_sale": OperationType.VEHICLE_SALE,
+        }
+        key = self.tipo_operacion.strip()
+        return mapping.get(key.lower(), key.upper())
+
+
 class CancelarRequest(CamelModel):
     motivo: str = Field(min_length=3)
 

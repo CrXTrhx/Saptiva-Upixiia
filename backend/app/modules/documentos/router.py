@@ -74,6 +74,17 @@ def rechazar(
     return serializers.serialize_documento(db, doc)
 
 
+@router.patch("/documentos/{doc_id}/revertir-rechazo")
+def revertir_rechazo(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    doc = service.get_doc_or_404(db, doc_id)
+    service.revertir_rechazo(db, doc, user)
+    return serializers.serialize_documento(db, doc)
+
+
 @router.post("/documentos/{doc_id}/reemplazar", status_code=201)
 def reemplazar(
     doc_id: str,

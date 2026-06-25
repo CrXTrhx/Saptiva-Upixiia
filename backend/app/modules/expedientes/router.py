@@ -12,6 +12,7 @@ from app.modules.expedientes.schemas import (
     CancelarRequest,
     ConsultaLLMRequest,
     CreateExpedienteRequest,
+    EditExpedienteRequest,
     NotaRequest,
 )
 
@@ -59,6 +60,18 @@ def obtener_expediente(
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
+    return serializers.serialize_expediente(db, case)
+
+
+@router.patch("/expedientes/{case_id}")
+def editar_expediente(
+    case_id: str,
+    body: EditExpedienteRequest,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    case = service.get_case_or_404(db, case_id)
+    service.editar_expediente(db, case, body, user)
     return serializers.serialize_expediente(db, case)
 
 

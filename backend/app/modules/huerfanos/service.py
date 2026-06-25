@@ -169,7 +169,7 @@ def serialize_orphan(db: Session, orphan: OrphanDocument) -> dict:
             suggested = {"id": str(case.id), "codigo": case.code, "clienteNombre": case.client_name}
     return {
         "id": str(orphan.id),
-        "archivoUrl": orphan.file_url,
+        "archivoUrl": storage.resolve_url(orphan.file_url),
         "filename": orphan.file_name or "documento",
         "mimeType": orphan.mime_type or "application/octet-stream",
         "canal": orphan.channel_code,
