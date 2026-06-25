@@ -7,7 +7,7 @@ import type {
   DocumentoRequerido,
   RangoFecha,
 } from "@/lib/types";
-import { ESTADOS, DOCUMENTOS_REQUERIDOS } from "@/lib/types";
+import { ESTADOS, DOCUMENTOS_REQUERIDOS, DOC_TIPO_LABELS } from "@/lib/types";
 import { statusColorMap } from "@/lib/status";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
@@ -130,7 +130,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
         <option value="">Documento</option>
         {DOCUMENTOS_REQUERIDOS.map((d) => (
           <option key={d} value={d}>
-            {d}
+            {DOC_TIPO_LABELS[d] ?? d}
           </option>
         ))}
       </select>

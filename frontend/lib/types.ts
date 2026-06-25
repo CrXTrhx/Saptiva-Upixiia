@@ -74,6 +74,11 @@ export const PRIORIDAD_LABELS: Record<string, string> = {
   LOW: "Baja",
 };
 
+export const TIPO_OPERACION_LABEL: Record<TipoOperacion, string> = {
+  ARMORING: "Blindaje",
+  VEHICLE_SALE: "Venta de vehiculo",
+};
+
 export type Expediente = {
   id: string;
   codigo: string;
@@ -83,10 +88,25 @@ export type Expediente = {
   clienteCorreo: string;
   fechaCreacion: string;
   estado: Estado;
+  tipoOperacion: TipoOperacion;
+  montoEstimado: number;
   nextStepPrioritario: string;
   capturista: string;
   documentosFaltantes: DocumentoRequerido[];
   ultimaActividad: string;
+};
+
+export type ClienteAgrupado = {
+  id: string;
+  nombre: string;
+  telefono: string;
+  correo: string;
+  rfc?: string;
+  montoTotal: number;
+  totalExpedientes: number;
+  conteoPorEstado: Partial<Record<Estado, number>>;
+  tieneUrgente: boolean;
+  expedientes: Expediente[];
 };
 
 export type CreateExpedienteRequest = {

@@ -75,6 +75,14 @@ const tonoColor: Record<TonoEvento, string> = {
   ok: "#8FA585", warn: "#D88A6A", accent: "#F19B42", neutral: "#B5AFA9",
 };
 
+function createEventoId(prefix: string): string {
+  return `${prefix}-${Date.now()}`;
+}
+
+function currentTimestamp(): string {
+  return new Date().toISOString();
+}
+
 // ═══════════════════════════════════════════
 // INLINE SUB-COMPONENTS (visual primitives)
 // ═══════════════════════════════════════════
@@ -434,7 +442,7 @@ function DetalleContent() {
       const consulta = await expedientesService.consultarLLM(id, pregunta);
       setModal({ type: "llm-respuesta", consulta });
       if (detalle) {
-        const ev: Evento = { id: "ev-llm-" + Date.now(), tipo: "consulta_llm", descripcion: `Consulta LLM: "${pregunta}" → ${consulta.respuesta === "si" ? "Sí" : "No"}`, timestamp: new Date().toISOString(), tono: "accent" };
+        const ev: Evento = { id: createEventoId("ev-llm"), tipo: "consulta_llm", descripcion: `Consulta LLM: "${pregunta}" → ${consulta.respuesta === "si" ? "Sí" : "No"}`, timestamp: currentTimestamp(), tono: "accent" };
         setDetalle({ ...detalle, historial: [ev, ...detalle.historial] });
       }
     } catch { showToast("Error en la consulta LLM"); } finally { setLlmLoading(false); }

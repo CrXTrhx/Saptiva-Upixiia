@@ -1,41 +1,36 @@
 import type { AuthResult, LoginCredentials, User } from "@/lib/types";
+import { apiClient, TOKEN_KEY } from "@/lib/apiClient";
 
-const STORAGE_KEY = "centur_session";
+const USER_KEY = "centur_session";
 
-const MOCK_USER: User = {
-  id: "1",
-  email: "admin@centur.com",
-  nombre: "Administrador",
-};
-const MOCK_PASSWORD = "admin123";
+type LoginResponse = { success: boolean; user: User; token: string };
 
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-// Swap this implementation for real API calls — the interface stays the same.
 export const authService = {
   async login(credentials: LoginCredentials): Promise<AuthResult> {
-    await delay(800);
-
-    if (
-      credentials.email === MOCK_USER.email &&
-      credentials.password === MOCK_PASSWORD
-    ) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(MOCK_USER));
-      return { success: true, user: MOCK_USER };
+    try {
+      const data = await apiClient<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(credentials),
+      });
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      return { success: true, user: data.user };
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Error de autenticación",
+      };
     }
-
-    return { success: false, error: "Credenciales inválidas" };
   },
 
   async logout(): Promise<void> {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
   },
 
   getCurrentUser(): User | null {
     if (typeof window === "undefined") return null;
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(USER_KEY);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as User;

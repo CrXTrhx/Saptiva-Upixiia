@@ -212,7 +212,7 @@ function DocumentPreview({ doc, size = "small", onExpand }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    setFailed(false);
+    queueMicrotask(() => setFailed(false));
   }, [doc?.archivoUrl]);
 
   const dims =
@@ -441,12 +441,14 @@ export default function AssignOrphanModal({
   // Reset al abrir; prellenar buscador con la mejor pista del documento.
   useEffect(() => {
     if (isOpen) {
-      setSearch(getAutoPrefill(documento));
-      setSelected(null);
-      setIsAssigning(false);
-      setAssigned(false);
-      setAssignError(null);
-      setPreviewExpandido(false);
+      queueMicrotask(() => {
+        setSearch(getAutoPrefill(documento));
+        setSelected(null);
+        setIsAssigning(false);
+        setAssigned(false);
+        setAssignError(null);
+        setPreviewExpandido(false);
+      });
     }
   }, [isOpen, documento]);
 

@@ -37,29 +37,44 @@ function DashboardContent() {
   const [loadingTable, setLoadingTable] = useState(true);
 
   useEffect(() => {
-    expedientesService.getConteos().then((c) => {
-      setConteos(c);
-      setLoadingConteos(false);
-    });
-    expedientesService.getHuerfanosPendientes().then(setHuerfanos);
+    expedientesService
+      .getConteos()
+      .then((c) => setConteos(c))
+      .catch(() => setConteos(null))
+      .finally(() => setLoadingConteos(false));
+    expedientesService
+      .getHuerfanosPendientes()
+      .then(setHuerfanos)
+      .catch(() => setHuerfanos(null));
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoadingTable(true);
 
     if (activeView === "cliente") {
-      expedientesService.getClientesAgrupados(query).then((data) => {
-        if (cancelled) return;
-        setClientes(data);
-        setLoadingTable(false);
-      });
+      expedientesService
+        .getClientesAgrupados(query)
+        .then((data) => {
+          if (!cancelled) setClientes(data);
+        })
+        .catch(() => {
+          if (!cancelled) setClientes([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingTable(false);
+        });
     } else {
-      expedientesService.getExpedientes(query).then((data) => {
-        if (cancelled) return;
-        setExpedientes(data);
-        setLoadingTable(false);
-      });
+      expedientesService
+        .getExpedientes(query)
+        .then((data) => {
+          if (!cancelled) setExpedientes(data);
+        })
+        .catch(() => {
+          if (!cancelled) setExpedientes([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingTable(false);
+        });
     }
 
     return () => {
@@ -68,10 +83,12 @@ function DashboardContent() {
   }, [query, activeView]);
 
   const handleQueryChange = useCallback((next: ExpedienteQuery) => {
+    setLoadingTable(true);
     setQuery(next);
   }, []);
 
   const handleViewChange = useCallback((view: VistaDashboard) => {
+    setLoadingTable(true);
     setActiveView(view);
   }, []);
 

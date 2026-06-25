@@ -17,13 +17,13 @@ const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const MIN_MOTIVO = 10;
 
 const estadoGlobalConfig: Record<Estado, { label: string; dot: string; bg: string; text: string }> = {
-  en_captura: { label: "Captura", dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
-  en_recepcion: { label: "Recepción", dot: "#B58A7A", bg: "#F1E8E3", text: "#6B4E40" },
-  en_validacion: { label: "Validación", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
-  completo: { label: "Completo", dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
-  incompleto_vencido: { label: "Vencido", dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
-  cancelado: { label: "Cancelado", dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
-  archivado: { label: "Archivado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
+  CAPTURING: { label: "Captura", dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
+  RECEIVING: { label: "Recepcion", dot: "#B58A7A", bg: "#F1E8E3", text: "#6B4E40" },
+  IN_VALIDATION: { label: "Validacion", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
+  COMPLETE: { label: "Completo", dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
+  INCOMPLETE_EXPIRED: { label: "Vencido", dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
+  CANCELLED: { label: "Cancelado", dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
+  ARCHIVED: { label: "Archivado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
 };
 
 type CancelarExpedienteModalProps = {

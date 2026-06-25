@@ -245,8 +245,8 @@ export default function EditarDatosModal({
                   style={inputStyle(!!fieldErr("tipoOperacion"))}
                 >
                   <option value="" disabled>Seleccionar…</option>
-                  <option value="blindaje">Blindaje</option>
-                  <option value="venta_vehiculo">Venta de vehículo</option>
+                  <option value="ARMORING">Blindaje</option>
+                  <option value="VEHICLE_SALE">Venta de vehiculo</option>
                 </select>
               </EditField>
             </div>

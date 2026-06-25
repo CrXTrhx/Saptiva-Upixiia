@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { X, AlertTriangle } from "lucide-react";
 import type { ClienteAgrupado, Expediente } from "@/lib/types";
-import { TIPO_OPERACION_LABEL } from "@/lib/types";
+import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useEffect } from "react";
@@ -102,7 +102,7 @@ function ExpedienteRow({ exp, onOpen }: { exp: Expediente; onOpen: (id: string) 
           {formatDate(exp.fechaCreacion)}
         </div>
         <div className="px-3 py-3 text-xs text-[var(--color-muted)] whitespace-nowrap">
-          {TIPO_OPERACION_LABEL[exp.tipoOperacion]}
+          {TIPO_OPERACION_LABELS[exp.tipoOperacion]}
         </div>
         <div className="px-3 py-3 text-xs font-medium text-[var(--color-text)] whitespace-nowrap">
           {formatMoney(exp.montoEstimado)}
@@ -131,7 +131,7 @@ function ExpedienteRow({ exp, onOpen }: { exp: Expediente; onOpen: (id: string) 
           <StatusBadge estado={exp.estado} />
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-          <span>{TIPO_OPERACION_LABEL[exp.tipoOperacion]}</span>
+          <span>{TIPO_OPERACION_LABELS[exp.tipoOperacion]}</span>
           <span>·</span>
           <span className="font-medium text-[var(--color-text)]">
             {formatMoney(exp.montoEstimado)}
@@ -214,8 +214,8 @@ export function ExpedientesClienteModal({
                 <span
                   className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
                   style={{
-                    backgroundColor: statusColorMap.incompleto_vencido.bg,
-                    color: statusColorMap.incompleto_vencido.text,
+                    backgroundColor: statusColorMap.INCOMPLETE_EXPIRED.bg,
+                    color: statusColorMap.INCOMPLETE_EXPIRED.text,
                   }}
                 >
                   <AlertTriangle size={10} aria-hidden="true" />
