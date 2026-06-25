@@ -440,7 +440,8 @@ function DetalleContent() {
   async function handleCancelar(motivo: string) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "cancelado" } });
+    const ev: Evento = { id: "ev-canc-" + Date.now(), tipo: "expediente_cancelado", descripcion: `Expediente cancelado. Motivo: ${motivo}`, timestamp: new Date().toISOString(), tono: "warn" };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "cancelado" }, historial: [ev, ...detalle.historial] });
     setModal({ type: "none" });
     try { await expedientesService.cancelarExpediente(id, motivo); showToast("Expediente cancelado"); } catch { setDetalle(prev); showToast("Error al cancelar expediente"); }
   }
@@ -569,7 +570,9 @@ function DetalleContent() {
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
               <ActionBtn icon={Pencil} onClick={() => {}}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
-              <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar</ActionBtn>
+              {exp.estado !== "cancelado" && exp.estado !== "archivado" && (
+                <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
+              )}
               {exp.estado === "completo" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
             </div>
           </div>
@@ -957,7 +960,12 @@ function DetalleContent() {
         />
       )}
       {modal.type === "cancelar" && (
-        <CancelarExpedienteModal onConfirm={handleCancelar} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <CancelarExpedienteModal
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, estado: exp.estado, fechaCreacion: exp.fechaCreacion, capturista: exp.capturista }}
+          onConfirm={handleCancelar}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "llm-respuesta" && (
         <RespuestaLLMModal consulta={modal.consulta} onClose={() => setModal({ type: "none" })} />
