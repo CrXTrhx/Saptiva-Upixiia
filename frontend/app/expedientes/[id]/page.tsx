@@ -412,9 +412,11 @@ function DetalleContent() {
   async function handleReemplazarDoc(docId: string, archivo: File) {
     if (!detalle) return;
     setModalLoading(true);
+    const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
     try {
       const newDoc = await expedientesService.reemplazarDocumento(docId, archivo);
-      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "reemplazado" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c) });
+      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "documento_reemplazado", descripcion: `Documento ${tipoDoc ?? ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "reemplazado" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento reemplazado");
     } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
   }
@@ -424,7 +426,8 @@ function DetalleContent() {
     setModalLoading(true);
     try {
       const newDoc = await expedientesService.subirDocumentoManual(id, tipo, archivo);
-      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "pendiente" ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c) });
+      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "documento_subido_manual", descripcion: `Documento ${tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "pendiente" ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento subido");
     } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
   }
@@ -944,7 +947,14 @@ function DetalleContent() {
         />
       )}
       {modal.type === "subir" && (
-        <SubirDocumentoModal modo={modal.modo} documentoId={modal.documentoId} onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <SubirDocumentoModal
+          modo={modal.modo}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
+          documentoActual={modal.documentoId ? documentos.find((d) => d.id === modal.documentoId) ?? null : null}
+          onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "cancelar" && (
         <CancelarExpedienteModal onConfirm={handleCancelar} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
