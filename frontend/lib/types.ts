@@ -15,30 +15,63 @@ export type AuthResult =
   | { success: false; error: string };
 
 // --- Expedientes ---
+// Codigos en INGLES (los dicta el backend). Las etiquetas en espanol para la UI
+// estan en los *_LABELS de abajo y en lib/status.ts.
 export const ESTADOS = [
-  "en_captura",
-  "en_recepcion",
-  "en_validacion",
-  "completo",
-  "incompleto_vencido",
-  "cancelado",
-  "archivado",
+  "CAPTURING",
+  "RECEIVING",
+  "IN_VALIDATION",
+  "COMPLETE",
+  "INCOMPLETE_EXPIRED",
+  "CANCELLED",
+  "ARCHIVED",
 ] as const;
 export type Estado = (typeof ESTADOS)[number];
 
 export const DOCUMENTOS_REQUERIDOS = [
-  "INE",
+  "OFFICIAL_ID",
   "CURP",
-  "CSF",
-  "comprobante",
+  "TAX_STATUS_CERT",
+  "PROOF_OF_ADDRESS",
 ] as const;
 export type DocumentoRequerido = (typeof DOCUMENTOS_REQUERIDOS)[number];
 
-export type TipoOperacion = "blindaje" | "venta_vehiculo";
+export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
 
-export const TIPO_OPERACION_LABEL: Record<TipoOperacion, string> = {
-  blindaje: "Blindaje",
-  venta_vehiculo: "Venta vehículo",
+// --- Etiquetas para mostrar en la UI (codigo ingles -> texto espanol) ---
+export const DOC_TIPO_LABELS: Record<string, string> = {
+  OFFICIAL_ID: "INE",
+  CURP: "CURP",
+  TAX_STATUS_CERT: "CSF",
+  PROOF_OF_ADDRESS: "Comprobante",
+};
+
+export const ESTADO_DOC_LABELS: Record<string, string> = {
+  PENDING: "Pendiente",
+  RECEIVED: "Recibido",
+  VALIDATED: "Validado",
+  REJECTED: "Rechazado",
+  EXPIRED: "Vencido",
+  REPLACED: "Reemplazado",
+};
+
+export const CANAL_LABELS: Record<string, string> = {
+  WHATSAPP: "WhatsApp",
+  EMAIL: "Correo",
+  DIRECT_UPLOAD: "Carga manual",
+};
+
+export const MOTIVO_LABELS: Record<string, string> = {
+  ILLEGIBLE: "Ilegible",
+  TYPE_MISMATCH: "Tipo no coincide",
+  EXPIRED: "Vencido",
+  OTHER: "Otro",
+};
+
+export const PRIORIDAD_LABELS: Record<string, string> = {
+  HIGH: "Alta",
+  MEDIUM: "Media",
+  LOW: "Baja",
 };
 
 export type Expediente = {
@@ -50,27 +83,10 @@ export type Expediente = {
   clienteCorreo: string;
   fechaCreacion: string;
   estado: Estado;
-  tipoOperacion: TipoOperacion;
-  montoEstimado: number;
   nextStepPrioritario: string;
   capturista: string;
   documentosFaltantes: DocumentoRequerido[];
   ultimaActividad: string;
-};
-
-// Vista agrupada del dashboard: un cliente con sus expedientes asociados.
-export type ClienteAgrupado = {
-  id: string;
-  nombre: string;
-  telefono: string;
-  correo: string;
-  rfc?: string;
-  montoTotal: number;
-  totalExpedientes: number;
-  conteoPorEstado: Partial<Record<Estado, number>>;
-  tieneUrgente: boolean;
-  // Ya vienen filtrados por el query y ordenados por prioridad.
-  expedientes: Expediente[];
 };
 
 export type CreateExpedienteRequest = {
@@ -99,27 +115,25 @@ export type ConteoEstados = Record<Estado, number>;
 
 // --- P5 Detail types ---
 export type EstadoDocumento =
-  | "pendiente"
-  | "recibido"
-  | "validado"
-  | "rechazado"
-  | "vencido"
-  | "reemplazado";
+  | "PENDING"
+  | "RECEIVED"
+  | "VALIDATED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "REPLACED";
 
 export type MotivoRechazoCategoria =
-  | "ilegible"
-  | "tipo_no_coincide"
-  | "vencido"
-  | "datos_no_coinciden"
-  | "incompleto"
-  | "otro";
+  | "ILLEGIBLE"
+  | "TYPE_MISMATCH"
+  | "EXPIRED"
+  | "OTHER";
 
 export type MotivoRechazo = {
   categoria: MotivoRechazoCategoria;
   texto: string;
 };
 
-export type Canal = "whatsapp" | "correo" | "upload";
+export type Canal = "WHATSAPP" | "EMAIL" | "DIRECT_UPLOAD";
 
 export type Documento = {
   id: string;
@@ -143,7 +157,7 @@ export type ChecklistItem = {
   documentoId?: string;
 };
 
-export type PrioridadNextStep = "alta" | "media" | "baja";
+export type PrioridadNextStep = "HIGH" | "MEDIUM" | "LOW";
 
 export type NextStep = {
   id: string;

@@ -2,6 +2,7 @@
 
 import { Clock, FileText, Check, X, AlertTriangle } from "lucide-react";
 import type { ChecklistItem, DocumentoRequerido, EstadoDocumento } from "@/lib/types";
+import { DOC_TIPO_LABELS } from "@/lib/types";
 
 type ChecklistProps = {
   checklist: ChecklistItem[];
@@ -13,21 +14,21 @@ const iconByEstado: Record<
   EstadoDocumento,
   { Icon: typeof Clock; color: string }
 > = {
-  pendiente: { Icon: Clock, color: "var(--color-muted)" },
-  recibido: { Icon: FileText, color: "var(--color-slate-dot)" },
-  validado: { Icon: Check, color: "var(--color-success)" },
-  rechazado: { Icon: X, color: "var(--color-coral)" },
-  vencido: { Icon: AlertTriangle, color: "var(--color-amber)" },
-  reemplazado: { Icon: FileText, color: "var(--color-muted)" },
+  PENDING: { Icon: Clock, color: "var(--color-muted)" },
+  RECEIVED: { Icon: FileText, color: "var(--color-slate-dot)" },
+  VALIDATED: { Icon: Check, color: "var(--color-success)" },
+  REJECTED: { Icon: X, color: "var(--color-coral)" },
+  EXPIRED: { Icon: AlertTriangle, color: "var(--color-amber)" },
+  REPLACED: { Icon: FileText, color: "var(--color-muted)" },
 };
 
 const labelByEstado: Record<EstadoDocumento, string> = {
-  pendiente: "Pendiente",
-  recibido: "Recibido",
-  validado: "Validado",
-  rechazado: "Rechazado",
-  vencido: "Vencido",
-  reemplazado: "Reemplazado",
+  PENDING: "Pendiente",
+  RECEIVED: "Recibido",
+  VALIDATED: "Validado",
+  REJECTED: "Rechazado",
+  EXPIRED: "Vencido",
+  REPLACED: "Reemplazado",
 };
 
 export default function Checklist({
@@ -39,7 +40,7 @@ export default function Checklist({
     if (item.documentoId) {
       onSelectTipo(item.tipo);
     } else {
-      onToast(`Aún no se recibe el documento ${item.tipo}`);
+      onToast(`Aún no se recibe el documento ${DOC_TIPO_LABELS[item.tipo] ?? item.tipo}`);
     }
   }
 
@@ -53,7 +54,7 @@ export default function Checklist({
       </h3>
       {checklist.map((item) => {
         const { Icon, color } = iconByEstado[item.estado];
-        const isMuted = item.estado === "pendiente";
+        const isMuted = item.estado === "PENDING";
 
         return (
           <button
@@ -69,7 +70,7 @@ export default function Checklist({
                 color: isMuted ? "var(--color-muted)" : "var(--color-text)",
               }}
             >
-              {item.tipo}
+              {DOC_TIPO_LABELS[item.tipo] ?? item.tipo}
             </span>
             <span
               className="text-[11px] font-medium"

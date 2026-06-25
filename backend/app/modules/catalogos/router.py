@@ -8,10 +8,20 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.models import AppUser
 
 router = APIRouter(tags=["catalogos"])
+
+
+@router.get("/config")
+def config():
+    """Datos del sistema para el frontend (numero/correo para instrucciones)."""
+    return {
+        "whatsappSistema": settings.system_whatsapp,
+        "correoSistema": settings.system_email,
+    }
 
 
 # Catalogos que tienen columna sort_order (los demas se ordenan por label_es)

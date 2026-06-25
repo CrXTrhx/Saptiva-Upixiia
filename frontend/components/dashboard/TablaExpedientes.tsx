@@ -103,7 +103,7 @@ export function TablaExpedientes({
             <EmptyState filtered={hasFilters} />
           ) : (
             expedientes.map((exp) => {
-              const isVencido = exp.estado === "incompleto_vencido";
+              const isVencido = exp.estado === "INCOMPLETE_EXPIRED";
               return (
                 <div
                   key={exp.id}
@@ -184,7 +184,7 @@ export function TablaExpedientes({
             <EmptyState filtered={hasFilters} />
           ) : (
             expedientes.map((exp) => {
-              const isVencido = exp.estado === "incompleto_vencido";
+              const isVencido = exp.estado === "INCOMPLETE_EXPIRED";
               return (
                 <div
                   key={exp.id}

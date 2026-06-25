@@ -10,6 +10,7 @@ import {
   History,
 } from "lucide-react";
 import type { Documento, EstadoDocumento } from "@/lib/types";
+import { DOC_TIPO_LABELS, ESTADO_DOC_LABELS } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 
 type DocumentosListProps = {
@@ -23,30 +24,30 @@ type DocumentosListProps = {
 };
 
 const estadoBadgeStyle: Record<
-  Exclude<EstadoDocumento, "pendiente" | "reemplazado">,
+  Exclude<EstadoDocumento, "PENDING" | "REPLACED">,
   { bg: string; text: string }
 > = {
-  recibido: { bg: "var(--color-slate-bg)", text: "var(--color-slate-text)" },
-  validado: { bg: "var(--color-success-bg)", text: "var(--color-success)" },
-  rechazado: { bg: "var(--color-coral-bg)", text: "var(--color-coral-text)" },
-  vencido: { bg: "var(--color-amber-bg)", text: "var(--color-amber-text)" },
+  RECEIVED: { bg: "var(--color-slate-bg)", text: "var(--color-slate-text)" },
+  VALIDATED: { bg: "var(--color-success-bg)", text: "var(--color-success)" },
+  REJECTED: { bg: "var(--color-coral-bg)", text: "var(--color-coral-text)" },
+  EXPIRED: { bg: "var(--color-amber-bg)", text: "var(--color-amber-text)" },
 };
 
 const canalLabels: Record<string, string> = {
-  whatsapp: "WhatsApp",
-  correo: "Correo",
-  upload: "Carga manual",
+  WHATSAPP: "WhatsApp",
+  EMAIL: "Correo",
+  DIRECT_UPLOAD: "Carga manual",
 };
 
 function EstadoBadge({ estado }: { estado: EstadoDocumento }) {
-  if (estado === "pendiente" || estado === "reemplazado") return null;
+  if (estado === "PENDING" || estado === "REPLACED") return null;
   const style = estadoBadgeStyle[estado];
   return (
     <span
       className="inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize"
       style={{ backgroundColor: style.bg, color: style.text }}
     >
-      {estado}
+      {ESTADO_DOC_LABELS[estado] ?? estado}
     </span>
   );
 }
@@ -123,7 +124,7 @@ function DocCard({
             className="text-sm font-semibold"
             style={{ color: "var(--color-text)" }}
           >
-            {doc.tipo}
+            {DOC_TIPO_LABELS[doc.tipo] ?? doc.tipo}
           </span>
           <EstadoBadge estado={doc.estado} />
           <CanalChip canal={doc.canal} />
@@ -187,7 +188,7 @@ function DocCard({
 
         {/* Actions */}
         <div className="flex items-center gap-2 mt-1.5">
-          {doc.estado !== "validado" && (
+          {doc.estado !== "VALIDATED" && (
             <button
               type="button"
               onClick={() => onValidar(doc.id)}
@@ -240,7 +241,7 @@ export default function DocumentosList({
   onPreview,
   onVersionAnterior,
 }: DocumentosListProps) {
-  const visibleDocs = documentos.filter((d) => d.estado !== "reemplazado");
+  const visibleDocs = documentos.filter((d) => d.estado !== "REPLACED");
 
   return (
     <div className="flex flex-col gap-4">

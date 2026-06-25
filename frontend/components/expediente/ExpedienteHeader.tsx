@@ -111,7 +111,7 @@ export default function ExpedienteHeader({
             <Ban size={15} />
             Cancelar expediente
           </Button>
-          {expediente.estado === "completo" && (
+          {expediente.estado === "COMPLETE" && (
             <Button variant="secondary" onClick={onArchivar}>
               <Archive size={15} />
               Archivar

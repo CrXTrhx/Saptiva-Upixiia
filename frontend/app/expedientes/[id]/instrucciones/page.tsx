@@ -21,8 +21,8 @@ import type { Expediente, TipoOperacion } from "@/lib/types";
 // --- EXAMPLE_PROPS (for reference — data comes from service, not props) ---
 // expediente: { id:"19", codigo:"EXP-2026-00019", clienteNombre:"María García",
 //   clienteTelefono:"5598765432", clienteCorreo:"maria@correo.com",
-//   estado:"en_captura", fechaCreacion:"2026-06-24T...", capturista:"Administrador",
-//   tipoOperacion:"blindaje" }
+//   estado:"CAPTURING", fechaCreacion:"2026-06-24T...", capturista:"Administrador",
+//   tipoOperacion:"ARMORING" }
 // configSistema: { whatsappSistema:"+52 55 1234 5678", correoSistema:"documentos@centur.saptiva.com" }
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
@@ -527,7 +527,7 @@ function InstruccionesContent() {
                       value={
                         TIPO_OPERACION_LABELS[
                           (expediente as unknown as { tipoOperacion?: TipoOperacion })
-                            .tipoOperacion ?? "blindaje"
+                            .tipoOperacion ?? "ARMORING"
                         ] ?? "—"
                       }
                     />

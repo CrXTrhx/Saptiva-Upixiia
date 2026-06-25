@@ -1,21 +1,22 @@
 "use client";
 
 import type { NextStep, PrioridadNextStep } from "@/lib/types";
+import { PRIORIDAD_LABELS } from "@/lib/types";
 
 type NextStepsProps = {
   steps: NextStep[];
 };
 
 const dotColor: Record<PrioridadNextStep, string> = {
-  alta: "var(--color-accent)",
-  media: "var(--color-amber)",
-  baja: "var(--color-slate-dot)",
+  HIGH: "var(--color-accent)",
+  MEDIUM: "var(--color-amber)",
+  LOW: "var(--color-slate-dot)",
 };
 
 const chipStyle: Record<PrioridadNextStep, { bg: string; text: string }> = {
-  alta: { bg: "var(--color-accent-light)", text: "var(--color-accent-text-dark)" },
-  media: { bg: "var(--color-amber-bg)", text: "var(--color-amber-text)" },
-  baja: { bg: "var(--color-slate-bg)", text: "var(--color-slate-text)" },
+  HIGH: { bg: "var(--color-accent-light)", text: "var(--color-accent-text-dark)" },
+  MEDIUM: { bg: "var(--color-amber-bg)", text: "var(--color-amber-text)" },
+  LOW: { bg: "var(--color-slate-bg)", text: "var(--color-slate-text)" },
 };
 
 export default function NextSteps({ steps }: NextStepsProps) {
@@ -52,7 +53,7 @@ export default function NextSteps({ steps }: NextStepsProps) {
                   className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize"
                   style={{ backgroundColor: chip.bg, color: chip.text }}
                 >
-                  {step.prioridad}
+                  {PRIORIDAD_LABELS[step.prioridad] ?? step.prioridad}
                 </span>
               </li>
             );
