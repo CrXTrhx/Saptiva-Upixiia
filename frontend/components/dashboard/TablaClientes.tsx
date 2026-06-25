@@ -1,17 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ChevronRight, AlertTriangle } from "lucide-react";
-import type { ClienteAgrupado, Expediente } from "@/lib/types";
-import { TIPO_OPERACION_LABEL } from "@/lib/types";
+import { motion, useReducedMotion } from "framer-motion";
+import { AlertTriangle } from "lucide-react";
+import type { ClienteAgrupado } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
-const SUB_GRID = "150px 110px 130px 120px 130px 1fr 140px";
 
-// Fondos suaves para el avatar; se reparten de forma estable por cliente.
 const AVATAR_TONES: { bg: string; text: string }[] = [
   { bg: "#ECF0E8", text: "#536648" },
   { bg: "#EBEEF2", text: "#4F5A6B" },
@@ -41,14 +36,6 @@ function formatMoney(n: number): string {
     currency: "MXN",
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("es-MX", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
 }
 
 function ConteoChips({
@@ -99,119 +86,22 @@ function SkeletonRows() {
   );
 }
 
-function ExpedienteSubRow({
-  exp,
-  onOpen,
-}: {
-  exp: Expediente;
-  onOpen: (id: string) => void;
-}) {
-  function onKey(e: React.KeyboardEvent) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onOpen(exp.id);
-    }
-  }
-
-  return (
-    <>
-      {/* Desktop / tablet */}
-      <div
-        role="link"
-        tabIndex={0}
-        aria-label={`Ver expediente ${exp.codigo}`}
-        onClick={() => onOpen(exp.id)}
-        onKeyDown={onKey}
-        className="hidden sm:grid items-center min-w-[900px] cursor-pointer border-b border-[var(--color-border)] last:border-b-0 transition-colors hover:bg-[var(--color-surface)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-accent)]"
-        style={{ gridTemplateColumns: SUB_GRID }}
-      >
-        <div className="px-4 py-3 font-mono text-xs whitespace-nowrap text-[var(--color-text)]">
-          {exp.codigo}
-        </div>
-        <div className="px-4 py-3 text-sm text-[var(--color-muted)] whitespace-nowrap">
-          {formatDate(exp.fechaCreacion)}
-        </div>
-        <div className="px-4 py-3 text-sm text-[var(--color-muted)] whitespace-nowrap">
-          {TIPO_OPERACION_LABEL[exp.tipoOperacion]}
-        </div>
-        <div className="px-4 py-3 text-sm font-medium text-[var(--color-text)] whitespace-nowrap">
-          {formatMoney(exp.montoEstimado)}
-        </div>
-        <div className="px-4 py-3">
-          <StatusBadge estado={exp.estado} />
-        </div>
-        <div className="px-4 py-3 text-sm text-[var(--color-muted)] truncate">
-          {exp.nextStepPrioritario}
-        </div>
-        <div className="px-4 py-3 text-sm text-[var(--color-muted)] whitespace-nowrap">
-          {exp.capturista}
-        </div>
-      </div>
-
-      {/* Mobile */}
-      <div
-        role="link"
-        tabIndex={0}
-        aria-label={`Ver expediente ${exp.codigo}`}
-        onClick={() => onOpen(exp.id)}
-        onKeyDown={onKey}
-        className="sm:hidden cursor-pointer border-b border-[var(--color-border)] last:border-b-0 px-4 py-3 transition-colors hover:bg-[var(--color-surface)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-accent)]"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-xs text-[var(--color-text)]">
-            {exp.codigo}
-          </span>
-          <StatusBadge estado={exp.estado} />
-        </div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-muted)]">
-          <span>{TIPO_OPERACION_LABEL[exp.tipoOperacion]}</span>
-          <span>·</span>
-          <span className="font-medium text-[var(--color-text)]">
-            {formatMoney(exp.montoEstimado)}
-          </span>
-          <span>·</span>
-          <span>{formatDate(exp.fechaCreacion)}</span>
-        </div>
-        <p className="mt-1 text-xs text-[var(--color-muted)] truncate">
-          {exp.nextStepPrioritario} · {exp.capturista}
-        </p>
-      </div>
-    </>
-  );
-}
-
 function ClienteRow({
   cliente,
-  expanded,
-  onToggle,
-  onOpenExpediente,
+  onSelect,
 }: {
   cliente: ClienteAgrupado;
-  expanded: boolean;
-  onToggle: (id: string) => void;
-  onOpenExpediente: (id: string) => void;
+  onSelect: (cliente: ClienteAgrupado) => void;
 }) {
-  const reduceMotion = useReducedMotion();
   const tone = avatarTone(cliente.id);
 
   return (
     <div className="border-b border-[var(--color-border)] last:border-b-0">
-      {/* Fila de cliente */}
       <button
         type="button"
-        aria-expanded={expanded}
-        onClick={() => onToggle(cliente.id)}
+        onClick={() => onSelect(cliente)}
         className="flex w-full items-center gap-3 px-4 py-3.5 text-left cursor-pointer transition-colors hover:bg-[var(--color-bg)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-accent)]"
       >
-        <motion.span
-          aria-hidden="true"
-          animate={{ rotate: expanded ? 90 : 0 }}
-          transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
-          className="shrink-0 text-[var(--color-muted)]"
-        >
-          <ChevronRight size={18} />
-        </motion.span>
-
         <span
           className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold"
           style={{ backgroundColor: tone.bg, color: tone.text }}
@@ -258,7 +148,7 @@ function ClienteRow({
         </div>
       </button>
 
-      {/* Chips en pantallas pequeñas (debajo de la fila) */}
+      {/* Chips en pantallas pequeñas */}
       <div className="px-4 pb-3 lg:hidden">
         <div className="flex items-center justify-between gap-2 pl-12">
           <ConteoChips conteo={cliente.conteoPorEstado} />
@@ -268,32 +158,6 @@ function ClienteRow({
           </span>
         </div>
       </div>
-
-      {/* Expedientes del cliente */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="content"
-            initial={reduceMotion ? false : { height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
-            transition={
-              reduceMotion ? { duration: 0 } : { duration: 0.22, ease: EASE_OUT }
-            }
-            className="overflow-hidden"
-          >
-            <div className="ml-4 mb-2 overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]/40 sm:ml-12">
-              {cliente.expedientes.map((exp) => (
-                <ExpedienteSubRow
-                  key={exp.id}
-                  exp={exp}
-                  onOpen={onOpenExpediente}
-                />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -302,21 +166,14 @@ export function TablaClientes({
   clientes,
   loading,
   hasFilters,
-  expanded,
-  onToggle,
+  onSelectCliente,
 }: {
   clientes: ClienteAgrupado[];
   loading: boolean;
   hasFilters: boolean;
-  expanded: Set<string>;
-  onToggle: (id: string) => void;
+  onSelectCliente: (cliente: ClienteAgrupado) => void;
 }) {
-  const router = useRouter();
   const reduceMotion = useReducedMotion();
-
-  function openExpediente(id: string) {
-    router.push(`/expedientes/${id}`);
-  }
 
   return (
     <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
@@ -344,9 +201,7 @@ export function TablaClientes({
           >
             <ClienteRow
               cliente={cliente}
-              expanded={expanded.has(cliente.id)}
-              onToggle={onToggle}
-              onOpenExpediente={openExpediente}
+              onSelect={onSelectCliente}
             />
           </motion.div>
         ))

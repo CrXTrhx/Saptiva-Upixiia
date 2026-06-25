@@ -7,6 +7,7 @@ import { ContadoresEstado } from "@/components/dashboard/ContadoresEstado";
 import { FiltrosBusqueda } from "@/components/dashboard/FiltrosBusqueda";
 import { TablaExpedientes } from "@/components/dashboard/TablaExpedientes";
 import { TablaClientes } from "@/components/dashboard/TablaClientes";
+import { ExpedientesClienteModal } from "@/components/dashboard/ExpedientesClienteModal";
 import { VistaToggle, type VistaDashboard } from "@/components/dashboard/VistaToggle";
 import { expedientesService } from "@/services/expedientesService";
 import type {
@@ -31,9 +32,7 @@ function DashboardContent() {
   const [huerfanos, setHuerfanos] = useState<number | null>(null);
   const [query, setQuery] = useState<ExpedienteQuery>({});
   const [activeView, setActiveView] = useState<VistaDashboard>("cliente");
-  const [expandedClients, setExpandedClients] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selectedCliente, setSelectedCliente] = useState<ClienteAgrupado | null>(null);
   const [loadingConteos, setLoadingConteos] = useState(true);
   const [loadingTable, setLoadingTable] = useState(true);
 
@@ -76,13 +75,12 @@ function DashboardContent() {
     setActiveView(view);
   }, []);
 
-  const toggleClient = useCallback((clientId: string) => {
-    setExpandedClients((prev) => {
-      const next = new Set(prev);
-      if (next.has(clientId)) next.delete(clientId);
-      else next.add(clientId);
-      return next;
-    });
+  const handleSelectCliente = useCallback((cliente: ClienteAgrupado) => {
+    setSelectedCliente(cliente);
+  }, []);
+
+  const handleCloseModal = useCallback(() => {
+    setSelectedCliente(null);
   }, []);
 
   const hasFilters = !!(
@@ -113,8 +111,7 @@ function DashboardContent() {
             clientes={clientes}
             loading={loadingTable}
             hasFilters={hasFilters}
-            expanded={expandedClients}
-            onToggle={toggleClient}
+            onSelectCliente={handleSelectCliente}
           />
         ) : (
           <TablaExpedientes
@@ -124,6 +121,11 @@ function DashboardContent() {
           />
         )}
       </main>
+
+      <ExpedientesClienteModal
+        cliente={selectedCliente}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 }
