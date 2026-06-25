@@ -968,7 +968,7 @@ function DetalleContent() {
         />
       )}
       {modal.type === "llm-respuesta" && (
-        <RespuestaLLMModal consulta={modal.consulta} onClose={() => setModal({ type: "none" })} />
+        <RespuestaLLMModal consulta={modal.consulta} expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }} onClose={() => setModal({ type: "none" })} />
       )}
 
       {/* TOAST */}
