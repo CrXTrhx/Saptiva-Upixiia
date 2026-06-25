@@ -1,4 +1,5 @@
 import type {
+  ClienteAgrupado,
   ConteoEstados,
   CreateExpedienteRequest,
   CreateExpedienteResponse,
@@ -70,7 +71,8 @@ function matchesSearch(exp: Expediente, search: string): boolean {
     exp.clienteNombre.toLowerCase().includes(q) ||
     (exp.clienteRfc?.toLowerCase().includes(q) ?? false) ||
     exp.clienteTelefono.includes(q) ||
-    exp.clienteCorreo.toLowerCase().includes(q)
+    exp.clienteCorreo.toLowerCase().includes(q) ||
+    exp.tipoOperacion.toLowerCase().includes(q)
   );
 }
 
@@ -129,25 +131,39 @@ function daysAgo(n: number): string {
   return d.toISOString();
 }
 
+// Mock con clientes que repiten identidad (mismo teléfono/correo/RFC) para que
+// la vista agrupada "Por cliente" muestre varios expedientes bajo un mismo cliente.
 const MOCK_EXPEDIENTES: Expediente[] = [
-  { id: "1", codigo: "EXP-2026-00001", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(15), estado: "incompleto_vencido", nextStepPrioritario: "Falta CURP", capturista: "Ana López", documentosFaltantes: ["CURP"], ultimaActividad: daysAgo(5) },
-  { id: "2", codigo: "EXP-2026-00002", clienteNombre: "Carlos Hernández", clienteRfc: "HERC880215DEF", clienteTelefono: "5551234002", clienteCorreo: "carlos@mail.com", fechaCreacion: daysAgo(10), estado: "en_validacion", nextStepPrioritario: "Revisar CSF", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
-  { id: "3", codigo: "EXP-2026-00003", clienteNombre: "Mariana Torres", clienteTelefono: "5551234003", clienteCorreo: "mariana@mail.com", fechaCreacion: daysAgo(8), estado: "en_recepcion", nextStepPrioritario: "Esperando INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(2) },
-  { id: "4", codigo: "EXP-2026-00004", clienteNombre: "Diego Sánchez", clienteRfc: "SADD950310GHI", clienteTelefono: "5551234004", clienteCorreo: "diego@mail.com", fechaCreacion: daysAgo(7), estado: "en_captura", nextStepPrioritario: "Completar datos", capturista: "Roberto Díaz", documentosFaltantes: ["CSF", "comprobante"], ultimaActividad: daysAgo(1) },
-  { id: "5", codigo: "EXP-2026-00005", clienteNombre: "Valeria Gómez", clienteTelefono: "5551234005", clienteCorreo: "valeria@mail.com", fechaCreacion: daysAgo(5), estado: "completo", nextStepPrioritario: "Listo para cierre", capturista: "Ana López", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "6", codigo: "EXP-2026-00006", clienteNombre: "Fernando Reyes", clienteRfc: "REYF870520JKL", clienteTelefono: "5551234006", clienteCorreo: "fernando@mail.com", fechaCreacion: daysAgo(20), estado: "incompleto_vencido", nextStepPrioritario: "Comprobante vencido", capturista: "Luis Pérez", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(8) },
-  { id: "7", codigo: "EXP-2026-00007", clienteNombre: "Laura Mendoza", clienteTelefono: "5551234007", clienteCorreo: "laura@mail.com", fechaCreacion: daysAgo(12), estado: "cancelado", nextStepPrioritario: "—", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(12) },
-  { id: "8", codigo: "EXP-2026-00008", clienteNombre: "Ricardo Navarro", clienteRfc: "NAVR910715MNO", clienteTelefono: "5551234008", clienteCorreo: "ricardo@mail.com", fechaCreacion: daysAgo(6), estado: "en_validacion", nextStepPrioritario: "Verificar INE", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "9", codigo: "EXP-2026-00009", clienteNombre: "Patricia Flores", clienteTelefono: "5551234009", clienteCorreo: "patricia@mail.com", fechaCreacion: daysAgo(4), estado: "en_recepcion", nextStepPrioritario: "Esperando CURP y CSF", capturista: "Ana López", documentosFaltantes: ["CURP", "CSF"], ultimaActividad: daysAgo(0) },
-  { id: "10", codigo: "EXP-2026-00010", clienteNombre: "Andrés Castillo", clienteRfc: "CASA880930PQR", clienteTelefono: "5551234010", clienteCorreo: "andres@mail.com", fechaCreacion: daysAgo(30), estado: "archivado", nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(30) },
-  { id: "11", codigo: "EXP-2026-00011", clienteNombre: "Gabriela Ortiz", clienteTelefono: "5551234011", clienteCorreo: "gabriela@mail.com", fechaCreacion: daysAgo(3), estado: "en_captura", nextStepPrioritario: "Falta INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(0) },
-  { id: "12", codigo: "EXP-2026-00012", clienteNombre: "Miguel Vargas", clienteRfc: "VARM920405STU", clienteTelefono: "5551234012", clienteCorreo: "miguel@mail.com", fechaCreacion: daysAgo(18), estado: "incompleto_vencido", nextStepPrioritario: "INE rechazada", capturista: "Roberto Díaz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(10) },
-  { id: "13", codigo: "EXP-2026-00013", clienteNombre: "Isabel Moreno", clienteTelefono: "5551234013", clienteCorreo: "isabel@mail.com", fechaCreacion: daysAgo(2), estado: "en_recepcion", nextStepPrioritario: "Esperando comprobante", capturista: "Ana López", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(0) },
-  { id: "14", codigo: "EXP-2026-00014", clienteNombre: "Javier Luna", clienteRfc: "LUNJ850612VWX", clienteTelefono: "5551234014", clienteCorreo: "javier@mail.com", fechaCreacion: daysAgo(9), estado: "en_validacion", nextStepPrioritario: "Validar comprobante", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(4) },
-  { id: "15", codigo: "EXP-2026-00015", clienteNombre: "Carmen Delgado", clienteTelefono: "5551234015", clienteCorreo: "carmen@mail.com", fechaCreacion: daysAgo(1), estado: "en_captura", nextStepPrioritario: "Captura en progreso", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "16", codigo: "EXP-2026-00016", clienteNombre: "Tomás Aguilar", clienteRfc: "AGUT900828YZA", clienteTelefono: "5551234016", clienteCorreo: "tomas@mail.com", fechaCreacion: daysAgo(25), estado: "completo", nextStepPrioritario: "Listo para archivar", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
-  { id: "17", codigo: "EXP-2026-00017", clienteNombre: "Elena Ríos", clienteTelefono: "5551234017", clienteCorreo: "elena@mail.com", fechaCreacion: daysAgo(14), estado: "en_recepcion", nextStepPrioritario: "Esperando INE y CURP", capturista: "Ana López", documentosFaltantes: ["INE", "CURP"], ultimaActividad: daysAgo(5) },
-  { id: "18", codigo: "EXP-2026-00018", clienteNombre: "Roberto Peña", clienteRfc: "PENR870115BCD", clienteTelefono: "5551234018", clienteCorreo: "robertop@mail.com", fechaCreacion: daysAgo(22), estado: "cancelado", nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(20) },
+  // --- Sofía Ramírez (3 expedientes) ---
+  { id: "1", codigo: "EXP-2026-00001", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(15), estado: "incompleto_vencido", tipoOperacion: "venta_vehiculo", montoEstimado: 250000, nextStepPrioritario: "Falta CURP", capturista: "Ana López", documentosFaltantes: ["CURP"], ultimaActividad: daysAgo(5) },
+  { id: "2", codigo: "EXP-2026-00011", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(12), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 520000, nextStepPrioritario: "Revisar CSF", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
+  { id: "3", codigo: "EXP-2026-00019", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(4), estado: "completo", tipoOperacion: "venta_vehiculo", montoEstimado: 475000, nextStepPrioritario: "Listo para cierre", capturista: "Ana López", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
+
+  // --- Fernando Reyes (2 expedientes) ---
+  { id: "4", codigo: "EXP-2026-00006", clienteNombre: "Fernando Reyes", clienteRfc: "REYF870520JKL", clienteTelefono: "5551234006", clienteCorreo: "fernando@mail.com", fechaCreacion: daysAgo(20), estado: "incompleto_vencido", tipoOperacion: "blindaje", montoEstimado: 780000, nextStepPrioritario: "Comprobante vencido", capturista: "Luis Pérez", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(8) },
+  { id: "5", codigo: "EXP-2026-00016", clienteNombre: "Fernando Reyes", clienteRfc: "REYF870520JKL", clienteTelefono: "5551234006", clienteCorreo: "fernando@mail.com", fechaCreacion: daysAgo(6), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 280000, nextStepPrioritario: "Esperando INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(2) },
+
+  // --- Carlos Hernández (2 expedientes) ---
+  { id: "6", codigo: "EXP-2026-00002", clienteNombre: "Carlos Hernández", clienteRfc: "HERC880215DEF", clienteTelefono: "5551234002", clienteCorreo: "carlos@mail.com", fechaCreacion: daysAgo(10), estado: "en_validacion", tipoOperacion: "venta_vehiculo", montoEstimado: 320000, nextStepPrioritario: "Revisar CSF", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
+  { id: "7", codigo: "EXP-2026-00022", clienteNombre: "Carlos Hernández", clienteRfc: "HERC880215DEF", clienteTelefono: "5551234002", clienteCorreo: "carlos@mail.com", fechaCreacion: daysAgo(3), estado: "en_captura", tipoOperacion: "blindaje", montoEstimado: 200000, nextStepPrioritario: "Completar datos", capturista: "Ana López", documentosFaltantes: ["CSF", "comprobante"], ultimaActividad: daysAgo(1) },
+
+  // --- Diego Sánchez (2 expedientes) ---
+  { id: "8", codigo: "EXP-2026-00004", clienteNombre: "Diego Sánchez", clienteRfc: "SADD950310GHI", clienteTelefono: "5551234004", clienteCorreo: "diego@mail.com", fechaCreacion: daysAgo(7), estado: "en_captura", tipoOperacion: "blindaje", montoEstimado: 640000, nextStepPrioritario: "Completar datos", capturista: "Roberto Díaz", documentosFaltantes: ["CSF", "comprobante"], ultimaActividad: daysAgo(1) },
+  { id: "9", codigo: "EXP-2026-00009", clienteNombre: "Diego Sánchez", clienteRfc: "SADD950310GHI", clienteTelefono: "5551234004", clienteCorreo: "diego@mail.com", fechaCreacion: daysAgo(4), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 310000, nextStepPrioritario: "Esperando CURP y CSF", capturista: "Ana López", documentosFaltantes: ["CURP", "CSF"], ultimaActividad: daysAgo(0) },
+
+  // --- Ricardo Navarro (2 expedientes) ---
+  { id: "10", codigo: "EXP-2026-00008", clienteNombre: "Ricardo Navarro", clienteRfc: "NAVR910715MNO", clienteTelefono: "5551234008", clienteCorreo: "ricardo@mail.com", fechaCreacion: daysAgo(6), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 560000, nextStepPrioritario: "Verificar INE", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
+  { id: "11", codigo: "EXP-2026-00012", clienteNombre: "Ricardo Navarro", clienteRfc: "NAVR910715MNO", clienteTelefono: "5551234008", clienteCorreo: "ricardo@mail.com", fechaCreacion: daysAgo(18), estado: "incompleto_vencido", tipoOperacion: "venta_vehiculo", montoEstimado: 290000, nextStepPrioritario: "INE rechazada", capturista: "Roberto Díaz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(10) },
+
+  // --- Clientes con un solo expediente ---
+  { id: "12", codigo: "EXP-2026-00003", clienteNombre: "Mariana Torres", clienteTelefono: "5551234003", clienteCorreo: "mariana@mail.com", fechaCreacion: daysAgo(8), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 330000, nextStepPrioritario: "Esperando INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(2) },
+  { id: "13", codigo: "EXP-2026-00005", clienteNombre: "Valeria Gómez", clienteTelefono: "5551234005", clienteCorreo: "valeria@mail.com", fechaCreacion: daysAgo(5), estado: "completo", tipoOperacion: "blindaje", montoEstimado: 690000, nextStepPrioritario: "Listo para cierre", capturista: "Ana López", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
+  { id: "14", codigo: "EXP-2026-00007", clienteNombre: "Laura Mendoza", clienteTelefono: "5551234007", clienteCorreo: "laura@mail.com", fechaCreacion: daysAgo(12), estado: "cancelado", tipoOperacion: "venta_vehiculo", montoEstimado: 220000, nextStepPrioritario: "—", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(12) },
+  { id: "15", codigo: "EXP-2026-00013", clienteNombre: "Isabel Moreno", clienteTelefono: "5551234013", clienteCorreo: "isabel@mail.com", fechaCreacion: daysAgo(2), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 410000, nextStepPrioritario: "Esperando comprobante", capturista: "Ana López", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(0) },
+  { id: "16", codigo: "EXP-2026-00014", clienteNombre: "Javier Luna", clienteRfc: "LUNJ850612VWX", clienteTelefono: "5551234014", clienteCorreo: "javier@mail.com", fechaCreacion: daysAgo(9), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 850000, nextStepPrioritario: "Validar comprobante", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(4) },
+  { id: "17", codigo: "EXP-2026-00015", clienteNombre: "Carmen Delgado", clienteTelefono: "5551234015", clienteCorreo: "carmen@mail.com", fechaCreacion: daysAgo(1), estado: "en_captura", tipoOperacion: "venta_vehiculo", montoEstimado: 265000, nextStepPrioritario: "Captura en progreso", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
+  { id: "18", codigo: "EXP-2026-00010", clienteNombre: "Andrés Castillo", clienteRfc: "CASA880930PQR", clienteTelefono: "5551234010", clienteCorreo: "andres@mail.com", fechaCreacion: daysAgo(30), estado: "archivado", tipoOperacion: "blindaje", montoEstimado: 720000, nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(30) },
+  { id: "19", codigo: "EXP-2026-00018", clienteNombre: "Roberto Peña", clienteRfc: "PENR870115BCD", clienteTelefono: "5551234018", clienteCorreo: "robertop@mail.com", fechaCreacion: daysAgo(22), estado: "cancelado", tipoOperacion: "venta_vehiculo", montoEstimado: 240000, nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(20) },
 ];
 
 const MOCK_HUERFANOS_PENDIENTES = 12;
@@ -180,13 +196,14 @@ const MOCK_DOCUMENTOS: Documento[] = [
   },
   {
     id: "doc-2", tipo: "CURP", estado: "recibido", filename: "curp-sofia.pdf",
-    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=CURP+PDF",
+    archivoUrl: "/curp-sofia.pdf",
     mimeType: "application/pdf", canal: "correo", remitente: "sofia@mail.com",
     fechaRecepcion: new Date(Date.now() - 3 * 86400000).toISOString(),
     datosExtraidos: { "CURP": "RALS900101MDFRPR09", "Nombre": "Sofía Ramírez López" },
   },
   {
     id: "doc-3", tipo: "CSF", estado: "rechazado", filename: "csf-sofia.pdf",
+    archivoUrl: "/csf-sofia.pdf",
     mimeType: "application/pdf", canal: "whatsapp", remitente: "Sofía Ramírez",
     fechaRecepcion: new Date(Date.now() - 2 * 86400000).toISOString(),
     motivoRechazo: { categoria: "vencido", texto: "La constancia tiene más de 3 meses de antigüedad" },
@@ -261,6 +278,8 @@ export const expedientesService = {
       clienteCorreo: req.clienteCorreo,
       fechaCreacion: now,
       estado: "en_captura",
+      tipoOperacion: req.tipoOperacion,
+      montoEstimado: req.montoEstimado,
       nextStepPrioritario: "Enviar instrucciones al cliente",
       capturista: "Administrador",
       documentosFaltantes: ["INE", "CURP", "CSF", "comprobante"],
@@ -271,10 +290,84 @@ export const expedientesService = {
     return exp;
   },
 
+  // PATCH /api/expedientes/:id  → actualizar datos del cliente del expediente
+  async actualizarExpediente(
+    id: string,
+    datos: {
+      clienteNombre: string;
+      clienteTelefono: string;
+      clienteCorreo: string;
+      clienteRfc?: string;
+      montoEstimado: number;
+      tipoOperacion: TipoOperacion;
+    },
+  ): Promise<Expediente> {
+    // --- MOCK: replace with apiClient.patch<Expediente>(`/expedientes/${id}`, datos) ---
+    await delay(500);
+    const idx = MOCK_EXPEDIENTES.findIndex((e) => e.id === id);
+    if (idx >= 0) {
+      MOCK_EXPEDIENTES[idx] = { ...MOCK_EXPEDIENTES[idx], ...datos };
+      return MOCK_EXPEDIENTES[idx];
+    }
+    return { ...MOCK_EXPEDIENTES[0], ...datos, id };
+  },
+
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
     await delay(400);
     const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
     return ordenarPorPrioridad(filtered);
+  },
+
+  // --- MOCK: replace with apiClient.get<ClienteAgrupado[]>(`/clientes?${queryString}`) ---
+  // Vista "Por cliente": agrupa los expedientes (ya filtrados por el query) por
+  // cliente, ordena cada grupo por prioridad y los clientes por su urgencia máxima.
+  async getClientesAgrupados(
+    query: ExpedienteQuery = {},
+  ): Promise<ClienteAgrupado[]> {
+    await delay(400);
+    const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
+
+    // Agrupar por identidad de cliente (el teléfono es estable en el mock).
+    const grupos = new Map<string, Expediente[]>();
+    for (const exp of filtered) {
+      const key = exp.clienteTelefono;
+      const arr = grupos.get(key);
+      if (arr) arr.push(exp);
+      else grupos.set(key, [exp]);
+    }
+
+    const clientes: ClienteAgrupado[] = [];
+    for (const [key, exps] of grupos) {
+      const expedientes = ordenarPorPrioridad(exps);
+      const head = expedientes[0];
+
+      const conteoPorEstado: Partial<Record<Estado, number>> = {};
+      for (const e of exps) {
+        conteoPorEstado[e.estado] = (conteoPorEstado[e.estado] ?? 0) + 1;
+      }
+
+      clientes.push({
+        id: key,
+        nombre: head.clienteNombre,
+        telefono: head.clienteTelefono,
+        correo: head.clienteCorreo,
+        rfc: head.clienteRfc,
+        montoTotal: exps.reduce((sum, e) => sum + e.montoEstimado, 0),
+        totalExpedientes: exps.length,
+        conteoPorEstado,
+        tieneUrgente: exps.some((e) => calcularPrioridad(e) === 0),
+        expedientes,
+      });
+    }
+
+    // Ordenar clientes por la prioridad más alta de sus expedientes (urgentes
+    // primero); a igual prioridad, mayor monto total primero.
+    return clientes.sort((a, b) => {
+      const pa = Math.min(...a.expedientes.map(calcularPrioridad));
+      const pb = Math.min(...b.expedientes.map(calcularPrioridad));
+      if (pa !== pb) return pa - pb;
+      return b.montoTotal - a.montoTotal;
+    });
   },
 
   async getConteos(): Promise<ConteoEstados> {

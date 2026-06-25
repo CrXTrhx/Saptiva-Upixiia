@@ -14,6 +14,8 @@ import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazar
 import SubirDocumentoModal from "@/components/expediente/modals/SubirDocumentoModal";
 import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpedienteModal";
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
+import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
+import { Modal } from "@/components/ui/Modal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import type {
@@ -179,13 +181,20 @@ function FauxPdfPage({ tipo }: { tipo: string }) {
   );
 }
 
-function DocPreview({ doc }: { doc: Documento }) {
+function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
   const ext = doc.filename.split(".").pop()?.toUpperCase() ?? "";
   const isPdf = doc.mimeType === "application/pdf" || doc.filename.endsWith(".pdf");
   const isImage = doc.mimeType.startsWith("image/");
 
   return (
-    <div className="group relative rounded-md overflow-hidden shrink-0 w-40 h-52 cursor-zoom-in" style={{ border: "1px solid #E5DED6", backgroundColor: "#FFFFFF" }}>
+    <button
+      type="button"
+      onClick={() => doc.archivoUrl && onOpen(doc)}
+      disabled={!doc.archivoUrl}
+      className="group relative rounded-md overflow-hidden shrink-0 w-40 h-52 cursor-zoom-in"
+      style={{ border: "1px solid #E5DED6", backgroundColor: "#FFFFFF" }}
+      aria-label={`Previsualizar documento ${doc.filename}`}
+    >
       <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider text-white" style={{ backgroundColor: "rgba(48,47,45,0.7)" }}>{ext}</span>
       {isImage && doc.archivoUrl ? (
         <img src={doc.archivoUrl} alt={doc.filename} className="w-full h-full object-cover" />
@@ -197,12 +206,17 @@ function DocPreview({ doc }: { doc: Documento }) {
           <span className="font-mono text-[10px] px-2 text-center truncate w-full" style={{ color: "#989396" }}>{doc.filename}</span>
         </div>
       )}
-    </div>
+      {!doc.archivoUrl && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80">
+          <span className="text-[11px] font-semibold" style={{ color: "#989396" }}>Sin archivo</span>
+        </div>
+      )}
+    </button>
   );
 }
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
-  doc: Documento; onValidar: (id: string) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.pendiente;
   const ccfg = canalConfig[doc.canal];
@@ -210,7 +224,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
 
   return (
     <div className="rounded-lg p-4 flex gap-4 flex-wrap md:flex-nowrap" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
-      <DocPreview doc={doc} />
+      <DocPreview doc={doc} onOpen={onOpen} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{doc.tipo}</span>
@@ -250,7 +264,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
         )}
         <div className="flex items-center gap-2 flex-wrap">
           {doc.estado !== "validado" && (
-            <button onClick={() => onValidar(doc.id)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
+            <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
               <Check size={11} strokeWidth={2.25} /> Validar
             </button>
           )}
@@ -272,7 +286,8 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
 
 type ModalState =
   | { type: "none" }
-  | { type: "validar-rechazar"; documento: Documento }
+  | { type: "editar" }
+  | { type: "validar-rechazar"; documento: Documento; mode: "validate" | "reject" }
   | { type: "subir"; modo: "nuevo" | "reemplazo"; documentoId?: string }
   | { type: "cancelar" }
   | { type: "llm-respuesta"; consulta: ConsultaLLM };
@@ -309,9 +324,12 @@ function DetalleContent() {
 
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const handleOpenPreview = useCallback((doc: Documento) => setPreviewDoc(doc), []);
+  const handleClosePreview = useCallback(() => setPreviewDoc(null), []);
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
@@ -350,27 +368,57 @@ function DetalleContent() {
     setDetalleAbiertoTipo(detalleAbiertoTipo === tipo ? null : tipo);
   }
 
-  async function handleValidarDoc(docId: string) {
+  async function handleValidarDoc(docId: string, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "validado" } : d), checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "validado" } : c) });
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "documento_validado", descripcion: `Documento ${doc?.tipo ?? ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "validado", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "validado" } : c),
+      historial: [ev, ...detalle.historial],
+    });
     try { await expedientesService.validarDocumento(docId); showToast("Documento validado"); } catch { setDetalle(prev); showToast("Error al validar documento"); }
   }
 
-  async function handleRechazarDoc(docId: string, motivo: MotivoRechazo) {
+  async function handleRechazarDoc(docId: string, motivo: MotivoRechazo, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "rechazado", motivoRechazo: motivo } : d), checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "rechazado" } : c) });
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "documento_rechazado", descripcion: `Documento ${doc?.tipo ?? ""} rechazado. Motivo: ${motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "rechazado", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "rechazado" } : c),
+      historial: [ev, ...detalle.historial],
+    });
     setModal({ type: "none" });
     try { await expedientesService.rechazarDocumento(docId, motivo); showToast("Documento rechazado"); } catch { setDetalle(prev); showToast("Error al rechazar documento"); }
+  }
+
+  // Revertir un rechazo automático: vuelve a "recibido" sin llamar backend.
+  function handleRevertirAuto(docId: string) {
+    if (!detalle) return;
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-rev-" + Date.now(), tipo: "reversion_rechazo_automatico", descripcion: `Rechazo automático revertido en ${doc?.tipo ?? "documento"}`, timestamp: new Date().toISOString(), tono: "neutral" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "recibido", rechazoAutomatico: false, motivoRechazo: undefined } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" } : c),
+      historial: [ev, ...detalle.historial],
+    });
+    showToast("Rechazo automático revertido");
   }
 
   async function handleReemplazarDoc(docId: string, archivo: File) {
     if (!detalle) return;
     setModalLoading(true);
+    const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
     try {
       const newDoc = await expedientesService.reemplazarDocumento(docId, archivo);
-      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "reemplazado" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c) });
+      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "documento_reemplazado", descripcion: `Documento ${tipoDoc ?? ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "reemplazado" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento reemplazado");
     } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
   }
@@ -380,9 +428,28 @@ function DetalleContent() {
     setModalLoading(true);
     try {
       const newDoc = await expedientesService.subirDocumentoManual(id, tipo, archivo);
-      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "pendiente" ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c) });
+      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "documento_subido_manual", descripcion: `Documento ${tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "pendiente" ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento subido");
     } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
+  }
+
+  async function handleEditarDatos(datos: EditarDatosValues) {
+    if (!detalle) return;
+    setModalLoading(true);
+    const prev = { ...detalle };
+    const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "datos_actualizados", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos }, historial: [ev, ...detalle.historial] });
+    try {
+      await expedientesService.actualizarExpediente(id, datos);
+      setModal({ type: "none" });
+      showToast("Datos actualizados");
+    } catch {
+      setDetalle(prev);
+      showToast("Error al actualizar datos");
+    } finally {
+      setModalLoading(false);
+    }
   }
 
   async function handleReenviar() {
@@ -393,7 +460,8 @@ function DetalleContent() {
   async function handleCancelar(motivo: string) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "cancelado" } });
+    const ev: Evento = { id: "ev-canc-" + Date.now(), tipo: "expediente_cancelado", descripcion: `Expediente cancelado. Motivo: ${motivo}`, timestamp: new Date().toISOString(), tono: "warn" };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "cancelado" }, historial: [ev, ...detalle.historial] });
     setModal({ type: "none" });
     try { await expedientesService.cancelarExpediente(id, motivo); showToast("Expediente cancelado"); } catch { setDetalle(prev); showToast("Error al cancelar expediente"); }
   }
@@ -520,9 +588,11 @@ function DetalleContent() {
               </div>
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => {}}>Editar datos</ActionBtn>
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
-              <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar</ActionBtn>
+              {exp.estado !== "cancelado" && exp.estado !== "archivado" && (
+                <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
+              )}
               {exp.estado === "completo" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
             </div>
           </div>
@@ -624,7 +694,7 @@ function DetalleContent() {
                 >
                   Detalle: {detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
               </Card>
             </motion.div>
           )}
@@ -658,7 +728,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
                   ))}
                 </div>
               )}
@@ -863,17 +933,70 @@ function DetalleContent() {
       </AnimatePresence>
 
       {/* MODALS */}
+      {previewDoc && (
+        <Modal open={!!previewDoc} onClose={handleClosePreview} title={`Previsualizar ${previewDoc.filename}`} maxWidth="max-w-4xl">
+          <div className="space-y-4">
+            <div className="text-sm text-[var(--color-text)]" style={{ color: "#5C5957" }}>
+              {previewDoc.tipo} • {previewDoc.canal.toUpperCase()} • {new Date(previewDoc.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+            </div>
+            {previewDoc.archivoUrl ? (
+              previewDoc.mimeType.startsWith("image/") ? (
+                <img src={previewDoc.archivoUrl} alt={previewDoc.filename} className="w-full rounded-xl object-contain" style={{ maxHeight: "70vh" }} />
+              ) : previewDoc.mimeType === "application/pdf" ? (
+                <iframe src={previewDoc.archivoUrl} title={previewDoc.filename} className="w-full h-[70vh] rounded-xl border border-[#E5DED6]" />
+              ) : (
+                <div className="w-full h-[70vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                  <span className="text-sm" style={{ color: "#989396" }}>Tipo de archivo no compatible para previsualizar.</span>
+                </div>
+              )
+            ) : (
+              <div className="w-full h-[70vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                <span className="text-sm" style={{ color: "#989396" }}>No hay archivo disponible para este documento.</span>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+      {modal.type === "editar" && (
+        <EditarDatosModal
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, montoEstimado: exp.montoEstimado, tipoOperacion: exp.tipoOperacion }}
+          onConfirm={handleEditarDatos}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
+      )}
       {modal.type === "validar-rechazar" && (
-        <ValidarRechazarModal documento={modal.documento} onValidar={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onRechazar={(motivo) => handleRechazarDoc(modal.documento.id, motivo)} onRevertir={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <ValidarRechazarModal
+          documento={documentos.find((d) => d.id === modal.documento.id) ?? modal.documento}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
+          mode={modal.mode}
+          onValidar={(datos) => { handleValidarDoc(modal.documento.id, datos); setModal({ type: "none" }); }}
+          onRechazar={(motivo, datos) => handleRechazarDoc(modal.documento.id, motivo, datos)}
+          onRevertir={() => handleRevertirAuto(modal.documento.id)}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "subir" && (
-        <SubirDocumentoModal modo={modal.modo} documentoId={modal.documentoId} onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <SubirDocumentoModal
+          modo={modal.modo}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
+          documentoActual={modal.documentoId ? documentos.find((d) => d.id === modal.documentoId) ?? null : null}
+          onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "cancelar" && (
-        <CancelarExpedienteModal onConfirm={handleCancelar} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <CancelarExpedienteModal
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, estado: exp.estado, fechaCreacion: exp.fechaCreacion, capturista: exp.capturista }}
+          onConfirm={handleCancelar}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "llm-respuesta" && (
-        <RespuestaLLMModal consulta={modal.consulta} onClose={() => setModal({ type: "none" })} />
+        <RespuestaLLMModal consulta={modal.consulta} expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }} onClose={() => setModal({ type: "none" })} />
       )}
 
       {/* TOAST */}

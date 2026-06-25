@@ -45,6 +45,7 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+  
       <Input
         label="Correo electrónico"
         type="email"
@@ -56,6 +57,7 @@ export function LoginForm() {
           if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
         }}
         error={errors.email}
+        className="bg-white/90 border-[rgba(241,155,66,0.18)] shadow-[0_10px_30px_rgba(241,155,66,0.08)]"
       />
 
       <Input
@@ -70,15 +72,20 @@ export function LoginForm() {
           if (errors.password) setErrors((p) => ({ ...p, password: undefined }));
         }}
         error={errors.password}
+        className="bg-white/90 border-[rgba(241,155,66,0.18)] shadow-[0_10px_30px_rgba(241,155,66,0.08)]"
       />
 
       {serverError && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600" role="alert">
+        <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600" role="alert">
           {serverError}
         </p>
       )}
 
-      <Button type="submit" loading={submitting} className="mt-1 w-full">
+      <Button
+        type="submit"
+        loading={submitting}
+        className="mt-1 w-full rounded-[18px] py-3 text-sm tracking-wide shadow-[0_14px_48px_rgba(241,155,66,0.2)]"
+      >
         Iniciar sesión
       </Button>
     </form>
