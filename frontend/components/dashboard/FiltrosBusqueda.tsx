@@ -64,7 +64,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
         </svg>
         <input
           type="search"
-          placeholder="Buscar por nombre, RFC, código, teléfono o correo"
+          placeholder="Buscar por cliente, RFC, código, teléfono o correo"
           aria-label="Buscar expedientes"
           value={searchLocal}
           onChange={(e) => setSearchLocal(e.target.value)}
