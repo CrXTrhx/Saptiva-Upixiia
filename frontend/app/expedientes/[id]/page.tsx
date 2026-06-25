@@ -14,6 +14,7 @@ import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazar
 import SubirDocumentoModal from "@/components/expediente/modals/SubirDocumentoModal";
 import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpedienteModal";
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
+import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
 import { Modal } from "@/components/ui/Modal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
@@ -285,6 +286,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
 
 type ModalState =
   | { type: "none" }
+  | { type: "editar" }
   | { type: "validar-rechazar"; documento: Documento; mode: "validate" | "reject" }
   | { type: "subir"; modo: "nuevo" | "reemplazo"; documentoId?: string }
   | { type: "cancelar" }
@@ -432,6 +434,24 @@ function DetalleContent() {
     } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
   }
 
+  async function handleEditarDatos(datos: EditarDatosValues) {
+    if (!detalle) return;
+    setModalLoading(true);
+    const prev = { ...detalle };
+    const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "datos_actualizados", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos }, historial: [ev, ...detalle.historial] });
+    try {
+      await expedientesService.actualizarExpediente(id, datos);
+      setModal({ type: "none" });
+      showToast("Datos actualizados");
+    } catch {
+      setDetalle(prev);
+      showToast("Error al actualizar datos");
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
   async function handleReenviar() {
     setReenviarLoading(true);
     try { await expedientesService.reenviarInstrucciones(id); showToast("Instrucciones reenviadas"); } catch { showToast("Error al reenviar instrucciones"); } finally { setReenviarLoading(false); }
@@ -568,7 +588,7 @@ function DetalleContent() {
               </div>
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => {}}>Editar datos</ActionBtn>
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
               {exp.estado !== "cancelado" && exp.estado !== "archivado" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
@@ -936,6 +956,14 @@ function DetalleContent() {
             )}
           </div>
         </Modal>
+      )}
+      {modal.type === "editar" && (
+        <EditarDatosModal
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, montoEstimado: exp.montoEstimado, tipoOperacion: exp.tipoOperacion }}
+          onConfirm={handleEditarDatos}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "validar-rechazar" && (
         <ValidarRechazarModal
