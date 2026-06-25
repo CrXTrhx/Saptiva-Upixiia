@@ -215,7 +215,7 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
 }
 
 function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
-  doc: Documento; onValidar: (id: string) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.pendiente;
   const ccfg = canalConfig[doc.canal];
@@ -263,7 +263,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
         )}
         <div className="flex items-center gap-2 flex-wrap">
           {doc.estado !== "validado" && (
-            <button onClick={() => onValidar(doc.id)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
+            <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
               <Check size={11} strokeWidth={2.25} /> Validar
             </button>
           )}
@@ -285,7 +285,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
 
 type ModalState =
   | { type: "none" }
-  | { type: "validar-rechazar"; documento: Documento }
+  | { type: "validar-rechazar"; documento: Documento; mode: "validate" | "reject" }
   | { type: "subir"; modo: "nuevo" | "reemplazo"; documentoId?: string }
   | { type: "cancelar" }
   | { type: "llm-respuesta"; consulta: ConsultaLLM };
@@ -366,19 +366,47 @@ function DetalleContent() {
     setDetalleAbiertoTipo(detalleAbiertoTipo === tipo ? null : tipo);
   }
 
-  async function handleValidarDoc(docId: string) {
+  async function handleValidarDoc(docId: string, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "validado" } : d), checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "validado" } : c) });
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "documento_validado", descripcion: `Documento ${doc?.tipo ?? ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "validado", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "validado" } : c),
+      historial: [ev, ...detalle.historial],
+    });
     try { await expedientesService.validarDocumento(docId); showToast("Documento validado"); } catch { setDetalle(prev); showToast("Error al validar documento"); }
   }
 
-  async function handleRechazarDoc(docId: string, motivo: MotivoRechazo) {
+  async function handleRechazarDoc(docId: string, motivo: MotivoRechazo, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "rechazado", motivoRechazo: motivo } : d), checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "rechazado" } : c) });
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "documento_rechazado", descripcion: `Documento ${doc?.tipo ?? ""} rechazado. Motivo: ${motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "rechazado", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "rechazado" } : c),
+      historial: [ev, ...detalle.historial],
+    });
     setModal({ type: "none" });
     try { await expedientesService.rechazarDocumento(docId, motivo); showToast("Documento rechazado"); } catch { setDetalle(prev); showToast("Error al rechazar documento"); }
+  }
+
+  // Revertir un rechazo automático: vuelve a "recibido" sin llamar backend.
+  function handleRevertirAuto(docId: string) {
+    if (!detalle) return;
+    const doc = detalle.documentos.find((d) => d.id === docId);
+    const ev: Evento = { id: "ev-rev-" + Date.now(), tipo: "reversion_rechazo_automatico", descripcion: `Rechazo automático revertido en ${doc?.tipo ?? "documento"}`, timestamp: new Date().toISOString(), tono: "neutral" };
+    setDetalle({
+      ...detalle,
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "recibido", rechazoAutomatico: false, motivoRechazo: undefined } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" } : c),
+      historial: [ev, ...detalle.historial],
+    });
+    showToast("Rechazo automático revertido");
   }
 
   async function handleReemplazarDoc(docId: string, archivo: File) {
@@ -640,7 +668,7 @@ function DetalleContent() {
                 >
                   Detalle: {detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
               </Card>
             </motion.div>
           )}
@@ -674,7 +702,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={handleValidarDoc} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
                   ))}
                 </div>
               )}
@@ -904,7 +932,16 @@ function DetalleContent() {
         </Modal>
       )}
       {modal.type === "validar-rechazar" && (
-        <ValidarRechazarModal documento={modal.documento} onValidar={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onRechazar={(motivo) => handleRechazarDoc(modal.documento.id, motivo)} onRevertir={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <ValidarRechazarModal
+          documento={documentos.find((d) => d.id === modal.documento.id) ?? modal.documento}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
+          mode={modal.mode}
+          onValidar={(datos) => { handleValidarDoc(modal.documento.id, datos); setModal({ type: "none" }); }}
+          onRechazar={(motivo, datos) => handleRechazarDoc(modal.documento.id, motivo, datos)}
+          onRevertir={() => handleRevertirAuto(modal.documento.id)}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "subir" && (
         <SubirDocumentoModal modo={modal.modo} documentoId={modal.documentoId} onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
