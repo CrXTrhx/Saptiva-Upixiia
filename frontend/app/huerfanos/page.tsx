@@ -1,23 +1,27 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import OrphanQueuePage from "@/components/huerfanos/OrphanQueuePage";
+import { setNuevaVentaPrefill } from "@/lib/nueva-venta-handoff";
 
 export default function HuerfanosPage() {
+  const router = useRouter();
+
   return (
     <ProtectedRoute>
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
-        <h1 className="text-2xl font-semibold text-[var(--color-text)]">
-          Cola de Huérfanos
-        </h1>
-        <p className="text-sm text-[var(--color-muted)]">P6 — Próximamente</p>
-        <Link
-          href="/dashboard"
-          className="text-sm text-[var(--color-accent)] hover:underline"
-        >
-          Volver al Dashboard
-        </Link>
-      </div>
+      <OrphanQueuePage
+        onVolverDashboard={() => router.push("/dashboard")}
+        onCrearExpediente={(prefill) => {
+          // Handoff en memoria → P3 lo consume al montar.
+          setNuevaVentaPrefill(prefill);
+          router.push("/nueva-venta");
+        }}
+        onIrAlExpediente={(exp) => {
+          // Tras asignar, navegar al detalle del expediente (P5).
+          if (exp?.id) router.push(`/expedientes/${exp.id}`);
+        }}
+      />
     </ProtectedRoute>
   );
 }
