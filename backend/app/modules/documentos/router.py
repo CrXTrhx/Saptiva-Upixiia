@@ -109,3 +109,14 @@ def reemplazar(
         user=user,
     )
     return serializers.serialize_documento(db, nuevo)
+
+
+@router.post("/documentos/{doc_id}/restaurar-version")
+def restaurar_version(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    doc = service.get_doc_or_404(db, doc_id)
+    restaurado = service.restaurar_version(db, doc, user)
+    return serializers.serialize_documento(db, restaurado)
