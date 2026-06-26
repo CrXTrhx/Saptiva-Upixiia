@@ -337,28 +337,28 @@ function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]
   const activeByTipo = new Map(documentos.map((doc) => [doc.tipo, doc]));
   const steps: NextStep[] = [];
 
-  const addStep = (id: string, texto: string, prioridad: "alta" | "media" | "baja") => {
+  const addStep = (id: string, texto: string, prioridad: PrioridadNextStep) => {
     steps.push({ id, texto, prioridad });
   };
 
   const csf = activeByTipo.get("CSF");
   if (csf?.estado === "rechazado") {
-    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "alta");
+    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "HIGH");
   }
 
   const curp = activeByTipo.get("CURP");
   if (curp?.estado === "recibido") {
-    addStep("ns-validar-curp", "Validar CURP recibida", "alta");
+    addStep("ns-validar-curp", "Validar CURP recibida", "HIGH");
   }
 
   const comprobante = activeByTipo.get("comprobante");
   if (!comprobante || comprobante.estado === "pendiente") {
-    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "media");
+    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "MEDIUM");
   }
 
   const ine = activeByTipo.get("INE");
   if (ine?.estado === "validado") {
-    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "baja");
+    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "LOW");
   }
 
   return steps;
