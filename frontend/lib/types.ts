@@ -15,30 +15,50 @@ export type AuthResult =
   | { success: false; error: string };
 
 // --- Expedientes ---
+// Los VALORES son los códigos en inglés del backend (status_code). Las etiquetas
+// en español viven en los mapas *_LABELS para mostrarse en la UI.
 export const ESTADOS = [
-  "en_captura",
-  "en_recepcion",
-  "en_validacion",
-  "completo",
-  "incompleto_vencido",
-  "cancelado",
-  "archivado",
+  "CAPTURING",
+  "RECEIVING",
+  "IN_VALIDATION",
+  "COMPLETE",
+  "INCOMPLETE_EXPIRED",
+  "CANCELLED",
+  "ARCHIVED",
 ] as const;
 export type Estado = (typeof ESTADOS)[number];
 
+export const ESTADO_LABELS: Record<Estado, string> = {
+  CAPTURING: "Captura",
+  RECEIVING: "Recepción",
+  IN_VALIDATION: "Validación",
+  COMPLETE: "Completo",
+  INCOMPLETE_EXPIRED: "Vencido",
+  CANCELLED: "Cancelado",
+  ARCHIVED: "Archivado",
+};
+
+// Códigos de tipo de documento del backend (DocType). Etiqueta en español aparte.
 export const DOCUMENTOS_REQUERIDOS = [
-  "INE",
+  "OFFICIAL_ID",
   "CURP",
-  "CSF",
-  "comprobante",
+  "TAX_STATUS_CERT",
+  "PROOF_OF_ADDRESS",
 ] as const;
 export type DocumentoRequerido = (typeof DOCUMENTOS_REQUERIDOS)[number];
 
-export type TipoOperacion = "blindaje" | "venta_vehiculo";
+export const DOCUMENTO_REQUERIDO_LABELS: Record<DocumentoRequerido, string> = {
+  OFFICIAL_ID: "INE",
+  CURP: "CURP",
+  TAX_STATUS_CERT: "CSF",
+  PROOF_OF_ADDRESS: "Comprobante",
+};
+
+export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
 
 export const TIPO_OPERACION_LABEL: Record<TipoOperacion, string> = {
-  blindaje: "Blindaje",
-  venta_vehiculo: "Venta vehículo",
+  ARMORING: "Blindaje",
+  VEHICLE_SALE: "Venta vehículo",
 };
 
 export type Expediente = {
@@ -98,28 +118,51 @@ export type ExpedienteQuery = {
 export type ConteoEstados = Record<Estado, number>;
 
 // --- P5 Detail types ---
+// Estados de documento del backend (DocStatus + checklist PENDING).
 export type EstadoDocumento =
-  | "pendiente"
-  | "recibido"
-  | "validado"
-  | "rechazado"
-  | "vencido"
-  | "reemplazado";
+  | "PENDING"
+  | "RECEIVED"
+  | "VALIDATED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "REPLACED";
 
+export const ESTADO_DOCUMENTO_LABELS: Record<EstadoDocumento, string> = {
+  PENDING: "Pendiente",
+  RECEIVED: "Recibido",
+  VALIDATED: "Validado",
+  REJECTED: "Rechazado",
+  EXPIRED: "Vencido",
+  REPLACED: "Reemplazado",
+};
+
+// Motivos de rechazo del backend (RejectionReason).
 export type MotivoRechazoCategoria =
-  | "ilegible"
-  | "tipo_no_coincide"
-  | "vencido"
-  | "datos_no_coinciden"
-  | "incompleto"
-  | "otro";
+  | "ILLEGIBLE"
+  | "TYPE_MISMATCH"
+  | "EXPIRED"
+  | "OTHER";
+
+export const MOTIVO_RECHAZO_LABELS: Record<MotivoRechazoCategoria, string> = {
+  ILLEGIBLE: "Ilegible",
+  TYPE_MISMATCH: "Tipo de documento no coincide",
+  EXPIRED: "Documento vencido",
+  OTHER: "Otro",
+};
 
 export type MotivoRechazo = {
   categoria: MotivoRechazoCategoria;
   texto: string;
 };
 
-export type Canal = "whatsapp" | "correo" | "upload";
+// Canales del backend (Channel).
+export type Canal = "WHATSAPP" | "EMAIL" | "DIRECT_UPLOAD";
+
+export const CANAL_LABELS: Record<Canal, string> = {
+  WHATSAPP: "WhatsApp",
+  EMAIL: "Correo",
+  DIRECT_UPLOAD: "Carga manual",
+};
 
 export type Documento = {
   id: string;
@@ -143,7 +186,14 @@ export type ChecklistItem = {
   documentoId?: string;
 };
 
-export type PrioridadNextStep = "alta" | "media" | "baja";
+// Prioridades del backend (Priority).
+export type PrioridadNextStep = "HIGH" | "MEDIUM" | "LOW";
+
+export const PRIORIDAD_LABELS: Record<PrioridadNextStep, string> = {
+  HIGH: "Alta",
+  MEDIUM: "Media",
+  LOW: "Baja",
+};
 
 export type NextStep = {
   id: string;
@@ -152,6 +202,27 @@ export type NextStep = {
 };
 
 export type TonoEvento = "ok" | "warn" | "accent" | "neutral";
+
+// Etiquetas en español para los códigos de tipo de evento del backend (EventType).
+export const EVENT_TYPE_LABELS: Record<string, string> = {
+  CASE_CREATED: "Expediente creado",
+  CASE_UPDATED: "Datos actualizados",
+  STATUS_CHANGED: "Cambio de estado",
+  DOCUMENT_RECEIVED: "Documento recibido",
+  DOCUMENT_VALIDATED: "Documento validado",
+  DOCUMENT_REJECTED: "Documento rechazado",
+  DOCUMENT_AUTO_REJECTED: "Rechazo automático",
+  AUTO_REJECT_REVERTED: "Rechazo revertido",
+  DOCUMENT_REPLACED: "Documento reemplazado",
+  REMINDER_SENT: "Recordatorio enviado",
+  INSTRUCTIONS_RESENT: "Instrucciones reenviadas",
+  NOTE_ADDED: "Nota agregada",
+  CASE_COMPLETED: "Expediente completado",
+  CASE_CANCELLED: "Expediente cancelado",
+  CASE_ARCHIVED: "Expediente archivado",
+  LLM_QUERY: "Consulta al asistente",
+  ORPHAN_ASSIGNED: "Documento asignado",
+};
 
 export type Evento = {
   id: string;
