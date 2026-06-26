@@ -18,6 +18,7 @@ import type {
   MotivoRechazo,
   MotivoRechazoCategoria,
 } from "@/lib/types";
+import { DOCUMENTO_REQUERIDO_LABELS, CANAL_LABELS } from "@/lib/types";
 
 // =============================================================================
 // P8 — Modal Validar / Rechazar Documento
@@ -34,21 +35,19 @@ const docEstadoConfig: Record<
   string,
   { label: string; dot: string; bg: string; text: string }
 > = {
-  pendiente: { label: "Pendiente", dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
-  recibido: { label: "Recibido", dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
-  validado: { label: "Validado", dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
-  rechazado: { label: "Rechazado", dot: "#D88A6A", bg: "#F6E6DF", text: "#9C4B2E" },
-  vencido: { label: "Vencido", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
-  reemplazado: { label: "Reemplazado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
+  PENDING: { label: "Pendiente", dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
+  RECEIVED: { label: "Recibido", dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
+  VALIDATED: { label: "Validado", dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
+  REJECTED: { label: "Rechazado", dot: "#D88A6A", bg: "#F6E6DF", text: "#9C4B2E" },
+  EXPIRED: { label: "Vencido", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
+  REPLACED: { label: "Reemplazado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
 };
 
 const motivoOptions: { value: MotivoRechazoCategoria; label: string }[] = [
-  { value: "ilegible", label: "Ilegible" },
-  { value: "tipo_no_coincide", label: "Tipo de documento no coincide" },
-  { value: "vencido", label: "Documento vencido" },
-  { value: "datos_no_coinciden", label: "Datos no coinciden con el cliente" },
-  { value: "incompleto", label: "Documento incompleto" },
-  { value: "otro", label: "Otro" },
+  { value: "ILLEGIBLE", label: "Ilegible" },
+  { value: "TYPE_MISMATCH", label: "Tipo de documento no coincide" },
+  { value: "EXPIRED", label: "Documento vencido" },
+  { value: "OTHER", label: "Otro" },
 ];
 
 // Clave reservada dentro de datosExtraidos: no es un campo editable, es metadato.
@@ -153,11 +152,11 @@ export default function ValidarRechazarModal({
     setFullPreviewOpen(false);
   }, [documento, mode]);
 
-  const ecfg = docEstadoConfig[documento.estado] ?? docEstadoConfig.pendiente;
+  const ecfg = docEstadoConfig[documento.estado] ?? docEstadoConfig.PENDING;
   const esRechazoAutomatico = documento.rechazoAutomatico === true;
 
   // No se permite validar un documento descartado (regla de negocio).
-  const puedeValidar = (documento.estado as string) !== "descartado";
+  const puedeValidar = (documento.estado as string) !== "DISCARDED";
 
   // Campos editables (todo datosExtraidos menos la confianza, que es metadato).
   const camposExtraidos = useMemo(
@@ -172,7 +171,7 @@ export default function ValidarRechazarModal({
     return Number.isFinite(n) ? n : null;
   }, [documento]);
 
-  const rejectComentarioObligatorio = rejectReason === "otro";
+  const rejectComentarioObligatorio = rejectReason === "OTHER";
   const rejectValido =
     rejectReason !== "" &&
     (!rejectComentarioObligatorio || rejectComment.trim().length > 0);
@@ -222,7 +221,7 @@ export default function ValidarRechazarModal({
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[16px] font-semibold" style={{ color: "#302F2D" }}>{titulo}</h2>
                 <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ backgroundColor: "#FCEEDB", color: "#A86518" }}>
-                  {documento.tipo}
+                  {DOCUMENTO_REQUERIDO_LABELS[documento.tipo] ?? documento.tipo}
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: ecfg.bg, color: ecfg.text }}>
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ecfg.dot }} />
@@ -272,8 +271,8 @@ export default function ValidarRechazarModal({
 
               <div className="mt-3 space-y-2 rounded-xl p-3" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
                 <DocMeta label="Archivo" value={documento.filename} mono />
-                <DocMeta label="Tipo" value={documento.tipo} />
-                <DocMeta label="Canal" value={documento.canal} />
+                <DocMeta label="Tipo" value={DOCUMENTO_REQUERIDO_LABELS[documento.tipo] ?? documento.tipo} />
+                <DocMeta label="Canal" value={CANAL_LABELS[documento.canal] ?? documento.canal} />
                 <DocMeta label="Remitente" value={documento.remitente} />
                 <DocMeta label="Recepción" value={formatRecepcion(documento.fechaRecepcion)} mono />
               </div>

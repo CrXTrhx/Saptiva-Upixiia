@@ -555,8 +555,8 @@ function NuevaVentaContent() {
                     <option value="" disabled>
                       Seleccionar...
                     </option>
-                    <option value="blindaje">Blindaje</option>
-                    <option value="venta_vehiculo">Venta de vehículo</option>
+                    <option value="ARMORING">Blindaje</option>
+                    <option value="VEHICLE_SALE">Venta de vehículo</option>
                   </select>
                 </Field>
 
@@ -635,7 +635,7 @@ function NuevaVentaContent() {
                 )}
               </p>
               <div className="mt-2.5">
-                <StatusBadge estado="en_captura" />
+                <StatusBadge estado="CAPTURING" />
               </div>
             </div>
 
@@ -647,7 +647,7 @@ function NuevaVentaContent() {
               <p className="text-xs text-[var(--color-muted)] mb-5">
                 El expediente se creará en estado{" "}
                 <code className="font-mono text-[var(--color-text-secondary)]">
-                  en_captura
+                  en captura
                 </code>{" "}
                 y podrás enviar instrucciones al cliente.
               </p>
