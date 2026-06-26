@@ -1,20 +1,22 @@
 "use client";
 
 // =============================================================================
-// P6 — Cola de Huérfanos (pantalla autocontenida e independiente)
+// P6 — Cola de Huérfanos
 // -----------------------------------------------------------------------------
-// Documentos recibidos por WhatsApp / Correo / Upload que aún no se asocian a un
-// expediente. Permite: asignar a expediente (P7), crear expediente prellenado
+// Documentos recibidos por WhatsApp / Correo / Carga manual que aún no se asocian
+// a un expediente. Permite: asignar a expediente (P7), crear expediente prellenado
 // (P3) o descartar.
 //
-// AISLAMIENTO: todo vive en este archivo. No importa nada de shared/ui ni de
-// otras pantallas, no usa router ni window.location. La navegación es simulada
-// con toasts / console.log (placeholders de callbacks futuros).
+// Conectado al backend: GET /huerfanos, POST /huerfanos/:id/asignar y /descartar.
+// Los códigos llegan en inglés (PENDING, WHATSAPP, OFFICIAL_ID…) y se muestran en
+// español vía los mapas de etiquetas de cada config.
 // =============================================================================
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AssignOrphanModal from "./AssignOrphanModal";
+import { huerfanosService } from "@/services/huerfanosService";
+import { expedientesService } from "@/services/expedientesService";
 import {
   Search,
   FileText,
@@ -42,37 +44,62 @@ const BG = "#F1EBE0";
 const ACCENT = "#F19B42";
 const EASE_OUT = [0.16, 1, 0.3, 1];
 
-// --- Config ------------------------------------------------------------------
+// --- Config (claves = códigos del backend en inglés; label = español) ----------
 
 const estadoConfig = {
-  pendiente: { label: "Pendiente", dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E", icon: Clock },
-  asignado: { label: "Asignado", dot: "#10B981", bg: "#D1FAE5", text: "#047857", icon: CheckCircle2 },
-  descartado: { label: "Descartado", dot: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280", icon: X },
+  PENDING: { label: "Pendiente", dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E", icon: Clock },
+  ASSIGNED: { label: "Asignado", dot: "#10B981", bg: "#D1FAE5", text: "#047857", icon: CheckCircle2 },
+  DISCARDED: { label: "Descartado", dot: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280", icon: X },
 };
 
 const canalConfig = {
-  WhatsApp: { icon: MessageCircle, color: "#10B981", bg: "#D1FAE5" },
-  Correo: { icon: Mail, color: "#3B82F6", bg: "#DBEAFE" },
-  Upload: { icon: Upload, color: "#F19B42", bg: "#FCEEDB" },
+  WHATSAPP: { label: "WhatsApp", icon: MessageCircle, color: "#10B981", bg: "#D1FAE5" },
+  EMAIL: { label: "Correo", icon: Mail, color: "#3B82F6", bg: "#DBEAFE" },
+  DIRECT_UPLOAD: { label: "Carga manual", icon: Upload, color: "#F19B42", bg: "#FCEEDB" },
 };
 
 const tipoDetectadoConfig = {
-  INE: { color: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
-  CURP: { color: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
-  CSF: { color: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
-  Comprobante: { color: "#10B981", bg: "#D1FAE5", text: "#047857" },
-  desconocido: { color: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280" },
+  OFFICIAL_ID: { label: "INE", color: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
+  CURP: { label: "CURP", color: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
+  TAX_STATUS_CERT: { label: "CSF", color: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
+  PROOF_OF_ADDRESS: { label: "Comprobante", color: "#10B981", bg: "#D1FAE5", text: "#047857" },
+  UNKNOWN: { label: "Desconocido", color: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280" },
 };
 
-// --- Datos simulados ---------------------------------------------------------
+// --- Adaptadores backend → shape interno de la pantalla -----------------------
 
-const documentosHuerfanosIniciales = [
-  { id: "HUE-001", archivo: "ine_sofia_frente.jpg", tipoDetectado: "INE", canal: "WhatsApp", remitente: "+52 55 1234 5678", timestamp: "24/06/2026 10:32", mensajeOriginal: "Hola, envío mi INE. Mi nombre es Sofía Ramírez.", estado: "pendiente", datosExtraidos: { nombre: "Sofía Ramírez", rfc: null, curp: "RASO990101MDFMFR09", tipoDocumento: "INE", vigencia: "2030", confianza: 92 } },
-  { id: "HUE-002", archivo: "csf_fernando.pdf", tipoDetectado: "CSF", canal: "Correo", remitente: "fernando@email.com", timestamp: "24/06/2026 10:41", mensajeOriginal: "Adjunto mi constancia de situación fiscal para continuar el trámite.", estado: "pendiente", datosExtraidos: { nombre: "Fernando Reyes", rfc: "REFE990101XXX", curp: null, tipoDocumento: "CSF", regimen: "Persona Física", domicilioFiscal: "CDMX", confianza: 88 } },
-  { id: "HUE-003", archivo: "comprobante_luz.jpg", tipoDetectado: "Comprobante", canal: "WhatsApp", remitente: "+52 55 8888 7777", timestamp: "24/06/2026 11:15", mensajeOriginal: "Buenas tardes, mando mi comprobante. Espero que sea el correcto, cualquier cosa me avisan.", estado: "pendiente", datosExtraidos: { nombre: "Miguel Vargas", rfc: null, curp: null, tipoDocumento: "Comprobante", domicilio: "Av. Reforma 123, CDMX", fechaEmision: "01/04/2026", confianza: 74 } },
-  { id: "HUE-004", archivo: "documento_sin_contexto.pdf", tipoDetectado: "desconocido", canal: "Correo", remitente: "cliente_desconocido@email.com", timestamp: "24/06/2026 11:28", mensajeOriginal: "Adjunto el documento solicitado.", estado: "pendiente", datosExtraidos: null },
-  { id: "HUE-005", archivo: "curp_carlos.pdf", tipoDetectado: "CURP", canal: "Upload", remitente: "Ana López", timestamp: "24/06/2026 12:03", mensajeOriginal: "Carga manual desde recepción.", estado: "asignado", datosExtraidos: { nombre: "Carlos Hernández", rfc: null, curp: "HECC990101HDFRRL08", tipoDocumento: "CURP", confianza: 95 } },
-];
+function adaptarHuerfano(o) {
+  return {
+    id: o.id,
+    archivo: o.filename || "documento",
+    archivoUrl: o.archivoUrl || null,
+    mimeType: o.mimeType || "",
+    tipoDetectado: o.tipoSugerido || "UNKNOWN",
+    canal: o.canal,
+    remitente: o.remitente || "",
+    timestamp: o.fechaRecepcion,
+    mensajeOriginal: o.textoMensaje || "",
+    estado: o.estado,
+    datosExtraidos: o.datosExtraidos || null,
+    expedienteSugerido: o.expedienteSugerido || null,
+  };
+}
+
+function adaptarExpedienteAsignable(e) {
+  return {
+    id: e.id,
+    codigo: e.codigo,
+    cliente: e.clienteNombre,
+    rfc: e.clienteRfc || "",
+    telefono: e.clienteTelefono || "",
+    correo: e.clienteCorreo || "",
+    estado: e.estado,
+    tipoOperacion: e.tipoOperacion,
+    fechaCreacion: e.fechaCreacion
+      ? new Date(e.fechaCreacion).toLocaleDateString("es-MX")
+      : "",
+  };
+}
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -91,42 +118,56 @@ function confianzaColor(n) {
   return { color: "#EF4444", bg: "#FEE2E2" };
 }
 
-// Para la demo el "hoy" es la fecha de los datos sembrados (24/06/2026).
-// En real, reemplazar por new Date().
-const HOY_DEMO = new Date(2026, 5, 24);
-
-// Parsea "DD/MM/YYYY HH:MM" → Date.
-function parseTimestamp(ts) {
-  const [fecha] = ts.split(" ");
-  const [dd, mm, yyyy] = fecha.split("/").map(Number);
-  return new Date(yyyy, mm - 1, dd);
+// Formatea una fecha ISO del backend a texto legible en español.
+function fmtFecha(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function matchesDateFilter(ts, filter) {
+function esHoy(iso) {
+  const d = new Date(iso);
+  const n = new Date();
+  return (
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate()
+  );
+}
+
+function matchesDateFilter(iso, filter) {
   if (filter === "todas") return true;
-  const fecha = parseTimestamp(ts);
-  const diffDias = Math.floor((HOY_DEMO - fecha) / 86400000);
-  if (filter === "hoy") return diffDias === 0;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return true;
+  if (filter === "hoy") return esHoy(iso);
+  const diffDias = Math.floor((new Date() - d) / 86400000);
   if (filter === "7dias") return diffDias >= 0 && diffDias <= 7;
   if (filter === "30dias") return diffDias >= 0 && diffDias <= 30;
   return true;
 }
 
-// Opciones de los dropdowns de filtro.
+// Opciones de los dropdowns de filtro (value = código backend; label = español).
 const CHANNEL_OPTIONS = [
   { value: "todos", label: "Todos los canales" },
-  { value: "WhatsApp", label: "WhatsApp" },
-  { value: "Correo", label: "Correo" },
-  { value: "Upload", label: "Upload" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "EMAIL", label: "Correo" },
+  { value: "DIRECT_UPLOAD", label: "Carga manual" },
 ];
 
 const TYPE_OPTIONS = [
   { value: "todos", label: "Todos los tipos" },
-  { value: "INE", label: "INE" },
+  { value: "OFFICIAL_ID", label: "INE" },
   { value: "CURP", label: "CURP" },
-  { value: "CSF", label: "CSF" },
-  { value: "Comprobante", label: "Comprobante" },
-  { value: "desconocido", label: "desconocido" },
+  { value: "TAX_STATUS_CERT", label: "CSF" },
+  { value: "PROOF_OF_ADDRESS", label: "Comprobante" },
+  { value: "UNKNOWN", label: "Desconocido" },
 ];
 
 const DATE_OPTIONS = [
@@ -136,24 +177,12 @@ const DATE_OPTIONS = [
   { value: "30dias", label: "Últimos 30 días" },
 ];
 
-// Expedientes mock para el modal de asignación (P7). En real vienen del service.
-// Shape esperado por AssignOrphanModal: { codigo, cliente, rfc, telefono, correo,
-// estado, tipoOperacion, fechaCreacion } (+ id para navegar a P5).
-const EXPEDIENTES_ASIGNABLES = [
-  { id: "1", codigo: "EXP-2026-00001", cliente: "Sofía Ramírez", rfc: "RAMS900101ABC", telefono: "5551234001", correo: "sofia@mail.com", estado: "en_captura", tipoOperacion: "venta_vehiculo", fechaCreacion: "09/06/2026" },
-  { id: "6", codigo: "EXP-2026-00002", cliente: "Carlos Hernández", rfc: "HERC880215DEF", telefono: "5551234002", correo: "carlos@mail.com", estado: "en_validacion", tipoOperacion: "venta_vehiculo", fechaCreacion: "14/06/2026" },
-  { id: "12", codigo: "EXP-2026-00003", cliente: "Mariana Torres", rfc: "", telefono: "5551234003", correo: "mariana@mail.com", estado: "en_recepcion", tipoOperacion: "venta_vehiculo", fechaCreacion: "16/06/2026" },
-  { id: "4", codigo: "EXP-2026-00006", cliente: "Fernando Reyes", rfc: "REFE990101XXX", telefono: "5551234006", correo: "fernando@email.com", estado: "incompleto_vencido", tipoOperacion: "blindaje", fechaCreacion: "04/06/2026" },
-  { id: "10", codigo: "EXP-2026-00008", cliente: "Ricardo Navarro", rfc: "NAVR910715MNO", telefono: "5551234008", correo: "ricardo@mail.com", estado: "en_validacion", tipoOperacion: "blindaje", fechaCreacion: "18/06/2026" },
-  { id: "16", codigo: "EXP-2026-00014", cliente: "Javier Luna", rfc: "LUNJ850612VWX", telefono: "5551234014", correo: "javier@mail.com", estado: "completo", tipoOperacion: "blindaje", fechaCreacion: "15/06/2026" },
-];
-
 // =============================================================================
 // Sub-componentes
 // =============================================================================
 
 function StateBadge({ estado, small }) {
-  const cfg = estadoConfig[estado] ?? estadoConfig.descartado;
+  const cfg = estadoConfig[estado] ?? estadoConfig.DISCARDED;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full font-medium whitespace-nowrap ${
@@ -168,13 +197,13 @@ function StateBadge({ estado, small }) {
 }
 
 function TipoChip({ tipo }) {
-  const cfg = tipoDetectadoConfig[tipo] ?? tipoDetectadoConfig.desconocido;
+  const cfg = tipoDetectadoConfig[tipo] ?? tipoDetectadoConfig.UNKNOWN;
   return (
     <span
       className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
       style={{ backgroundColor: cfg.bg, color: cfg.text }}
     >
-      {tipo}
+      {cfg.label}
     </span>
   );
 }
@@ -214,7 +243,7 @@ function FauxGeneric() {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5" style={{ backgroundColor: "#F9FAFB" }}>
       <HelpCircle size={20} style={{ color: "#9CA3AF" }} />
-      <span className="text-[9px] font-mono" style={{ color: "#9CA3AF" }}>desconocido</span>
+      <span className="text-[9px] font-mono" style={{ color: "#9CA3AF" }}>Desconocido</span>
     </div>
   );
 }
@@ -227,13 +256,8 @@ function DocThumbnail({ doc, onClick, size = "normal" }) {
   const esImg = esImagen(ext) || (doc.mimeType || "").startsWith("image/");
   const esPdf = ext === "pdf" || doc.mimeType === "application/pdf";
 
-  // La vista previa SOLO es interactiva cuando hay un archivo real cargado.
-  // Con datos sin archivo (placeholders), el thumbnail es estático (no abre modal).
   const clickable = tieneArchivo && typeof onClick === "function";
 
-  // Contenido: archivo real si está cargado; si no, placeholder faux.
-  // El <iframe> de PDF solo se monta en grande (modal); en la lista se usa el
-  // faux para no capturar el clic ni cargar el visor por cada fila.
   let contenido;
   if (tieneArchivo && esImg) {
     contenido = (
@@ -260,7 +284,6 @@ function DocThumbnail({ doc, onClick, size = "normal" }) {
     </span>
   );
 
-  // Sin archivo real → contenedor estático, sin cursor zoom ni hint.
   if (!clickable) {
     return (
       <div className="relative shrink-0 overflow-hidden rounded-lg" style={{ ...dims, border: "1px solid #E5E7EB" }}>
@@ -283,7 +306,6 @@ function DocThumbnail({ doc, onClick, size = "normal" }) {
       {contenido}
       {ExtChip}
 
-      {/* Hint zoom abajo-derecha */}
       <span
         className="absolute bottom-1.5 right-1.5 flex items-center justify-center rounded p-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
         style={{ backgroundColor: "rgba(17,24,39,0.7)" }}
@@ -315,6 +337,7 @@ function ExtractedData({ datos }) {
     { key: "regimen", label: "régimen", mono: false },
     { key: "domicilioFiscal", label: "dom. fiscal", mono: false },
     { key: "domicilio", label: "domicilio", mono: false },
+    { key: "codigo_postal", label: "c.p.", mono: true },
     { key: "fechaEmision", label: "f. emisión", mono: false },
   ].filter((c) => datos[c.key]);
 
@@ -331,19 +354,23 @@ function ExtractedData({ datos }) {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        {campos.map((c) => (
-          <div key={c.key} className="min-w-0">
-            <span className="text-[10px]" style={{ color: "#9CA3AF" }}>{c.label}: </span>
-            <span
-              className={`text-[11px] font-medium ${c.mono ? "font-mono tabular-nums" : ""}`}
-              style={{ color: "#374151" }}
-            >
-              {datos[c.key]}
-            </span>
-          </div>
-        ))}
-      </div>
+      {campos.length > 0 ? (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+          {campos.map((c) => (
+            <div key={c.key} className="min-w-0">
+              <span className="text-[10px]" style={{ color: "#9CA3AF" }}>{c.label}: </span>
+              <span
+                className={`text-[11px] font-medium ${c.mono ? "font-mono tabular-nums" : ""}`}
+                style={{ color: "#374151" }}
+              >
+                {datos[c.key]}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] italic" style={{ color: "#9CA3AF" }}>Sin campos reconocidos</p>
+      )}
     </div>
   );
 }
@@ -362,12 +389,12 @@ function DetailRow({ label, value, mono, children }) {
 }
 
 function CanalChip({ canal }) {
-  const cfg = canalConfig[canal] ?? canalConfig.Upload;
+  const cfg = canalConfig[canal] ?? canalConfig.DIRECT_UPLOAD;
   const Icon = cfg.icon;
   return (
     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ backgroundColor: cfg.bg, color: cfg.color }}>
       <Icon size={10} />
-      {canal}
+      {cfg.label}
     </span>
   );
 }
@@ -401,7 +428,6 @@ function FilterDropdown({ label, options, value, onChange }) {
       <AnimatePresence>
         {open && (
           <>
-            {/* click-outside */}
             <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
             <motion.div
               initial={{ opacity: 0, y: -4 }}
@@ -459,7 +485,7 @@ function SummaryCard({ label, count, icon: Icon, color, dot, delay }) {
 }
 
 function OrphanDocumentRow({ doc, onPreview, onAsignar, onCrearExpediente, onDescartar, delay }) {
-  const esPendiente = doc.estado === "pendiente";
+  const esPendiente = doc.estado === "PENDING";
 
   return (
     <motion.div
@@ -490,15 +516,26 @@ function OrphanDocumentRow({ doc, onPreview, onAsignar, onCrearExpediente, onDes
             <CanalChip canal={doc.canal} />
             <span className="text-[11px]" style={{ color: "#6B7280" }}>{doc.remitente}</span>
             <span style={{ color: "#D1D5DB" }}>·</span>
-            <span className="text-[11px] tabular-nums" style={{ color: "#9CA3AF" }}>{doc.timestamp}</span>
+            <span className="text-[11px] tabular-nums" style={{ color: "#9CA3AF" }}>{fmtFecha(doc.timestamp)}</span>
           </div>
 
-          <p
-            className="line-clamp-2 text-[12px] italic leading-relaxed"
-            style={{ borderLeft: "2px solid #E5E7EB", paddingLeft: 10, color: "#4B5563" }}
-          >
-            “{doc.mensajeOriginal}”
-          </p>
+          {doc.mensajeOriginal && (
+            <p
+              className="line-clamp-2 text-[12px] italic leading-relaxed"
+              style={{ borderLeft: "2px solid #E5E7EB", paddingLeft: 10, color: "#4B5563" }}
+            >
+              “{doc.mensajeOriginal}”
+            </p>
+          )}
+
+          {doc.expedienteSugerido && (
+            <p className="mt-2 text-[11px]" style={{ color: "#6B7280" }}>
+              <Sparkles size={11} className="mr-1 inline" style={{ color: ACCENT }} />
+              Coincidencia sugerida:{" "}
+              <span className="font-mono" style={{ color: "#374151" }}>{doc.expedienteSugerido.codigo}</span>
+              {" · "}{doc.expedienteSugerido.clienteNombre}
+            </p>
+          )}
 
           <div className="mt-3">
             <ExtractedData datos={doc.datosExtraidos} />
@@ -549,7 +586,7 @@ function OrphanDocumentRow({ doc, onPreview, onAsignar, onCrearExpediente, onDes
         </div>
       ) : (
         <div className="mt-4 pt-4 text-[12px]" style={{ borderTop: "1px solid #F3F4F6", color: "#9CA3AF" }}>
-          {doc.estado === "asignado"
+          {doc.estado === "ASSIGNED"
             ? "Documento ya asignado a un expediente"
             : "Documento descartado"}
         </div>
@@ -562,9 +599,6 @@ function OrphanDocumentRow({ doc, onPreview, onAsignar, onCrearExpediente, onDes
 // Pantalla principal
 // =============================================================================
 
-// Props OPCIONALES para integración real (todas con fallback al comportamiento
-// aislado: toast / console.log). Si no se pasan, la pantalla sigue corriendo
-// standalone tal cual.
 /**
  * @param {{
  *   onVolverDashboard?: () => void,
@@ -579,7 +613,11 @@ export default function OrphanQueuePage({
   onCrearExpediente,
   onIrAlExpediente,
 } = {}) {
-  const [documentos, setDocumentos] = useState(documentosHuerfanosIniciales);
+  const [documentos, setDocumentos] = useState([]);
+  const [expedientes, setExpedientes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
   const [search, setSearch] = useState("");
   const [activeStatusFilter, setActiveStatusFilter] = useState("todos");
   const [channelFilter, setChannelFilter] = useState("todos");
@@ -596,6 +634,29 @@ export default function OrphanQueuePage({
   useEffect(() => {
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  // Carga inicial: huérfanos + expedientes asignables (para el modal P7).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [orphans, exps] = await Promise.all([
+          huerfanosService.listar(),
+          expedientesService.getExpedientes(),
+        ]);
+        if (cancelled) return;
+        setDocumentos(orphans.map(adaptarHuerfano));
+        setExpedientes(exps.map(adaptarExpedienteAsignable));
+      } catch (e) {
+        if (!cancelled) setLoadError(e?.message || "No se pudieron cargar los documentos");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -637,18 +698,18 @@ export default function OrphanQueuePage({
   }, [documentos, search, activeStatusFilter, channelFilter, typeFilter, dateFilter]);
 
   const conteos = useMemo(() => {
-    const c = { pendiente: 0, asignado: 0, descartado: 0, hoy: 0 };
+    const c = { PENDING: 0, ASSIGNED: 0, DISCARDED: 0, hoy: 0 };
     for (const d of documentos) {
       if (c[d.estado] != null) c[d.estado]++;
-      if (d.timestamp.startsWith("24/06/2026")) c.hoy++;
+      if (esHoy(d.timestamp)) c.hoy++;
     }
     return c;
   }, [documentos]);
 
-  // --- Navegación: usa los callbacks reales si se inyectan; si no, simula. ---
+  // --- Navegación ---
   function handleVolverDashboard() {
     if (onVolverDashboard) onVolverDashboard();
-    else showToast("→ P2: Volver al dashboard");
+    else showToast("→ Volver al dashboard");
   }
 
   // --- P7: Asignar a expediente existente (modal AssignOrphanModal) ---
@@ -657,20 +718,22 @@ export default function OrphanQueuePage({
     setIsAssignModalOpen(true);
   }
 
-  // onAssign: el host "persiste" la asignación. En el mock cambiamos el estado del
-  // huérfano a "asignado". El host real, además, registraría el evento
-  // asignacion_desde_huerfano y recalcularía checklist/next steps del expediente.
+  // onAssign: persiste la asignación en el backend. Si lanza, el modal muestra el
+  // error y no marca como asignado.
   async function handleAssignPersist(documento, expediente) {
-    await new Promise((r) => setTimeout(r, 400)); // simula latencia
+    await huerfanosService.asignar(
+      documento.id,
+      expediente.id,
+      documento.tipoDetectado === "UNKNOWN" ? null : documento.tipoDetectado,
+    );
     setDocumentos((prev) =>
       prev.map((d) =>
-        d.id === documento.id ? { ...d, estado: "asignado" } : d,
+        d.id === documento.id ? { ...d, estado: "ASSIGNED" } : d,
       ),
     );
     if (onAsignar) onAsignar({ documento, expediente });
   }
 
-  // onAssigned: éxito → refrescar P6 (aquí solo feedback).
   function handleAssignSuccess() {
     showToast("Documento asignado correctamente");
   }
@@ -679,8 +742,8 @@ export default function OrphanQueuePage({
   function handleCreateExpedienteFromDocument(documento) {
     const prefillNuevaVenta = {
       nombreCliente: documento.datosExtraidos?.nombre || "",
-      telefono: documento.canal === "WhatsApp" ? documento.remitente : "",
-      correo: documento.canal === "Correo" ? documento.remitente : "",
+      telefono: documento.canal === "WHATSAPP" ? documento.remitente : "",
+      correo: documento.canal === "EMAIL" ? documento.remitente : "",
       rfc: documento.datosExtraidos?.rfc || "",
       tipoOperacion: "",
       montoEstimado: "",
@@ -694,24 +757,32 @@ export default function OrphanQueuePage({
         datosExtraidos: documento.datosExtraidos,
       },
     };
-    console.log("Ir a P3 con prefill:", prefillNuevaVenta);
-    // Integración real: el padre (page.tsx) guarda el prefill en memoria y hace
-    // router.push("/nueva-venta"). En standalone, cae al toast simulado.
     if (onCrearExpediente) onCrearExpediente(prefillNuevaVenta);
-    else showToast("→ P3: Nueva Venta con datos prellenados desde huérfano");
+    else showToast("→ Nueva venta con datos prellenados desde huérfano");
   }
 
-  function handleDiscard(id) {
-    setDocumentos((prev) => prev.map((d) => (d.id === id ? { ...d, estado: "descartado" } : d)));
-    setConfirmDiscard(null);
-    showToast("Documento descartado");
+  async function handleDiscard(documento) {
+    try {
+      await huerfanosService.descartar(
+        documento.id,
+        "Descartado desde la cola de huérfanos",
+      );
+      setDocumentos((prev) =>
+        prev.map((d) => (d.id === documento.id ? { ...d, estado: "DISCARDED" } : d)),
+      );
+      setConfirmDiscard(null);
+      showToast("Documento descartado");
+    } catch (e) {
+      setConfirmDiscard(null);
+      showToast("Error al descartar el documento");
+    }
   }
 
   const filtrosEstado = [
     { value: "todos", label: "Todos" },
-    { value: "pendiente", label: "Pendientes" },
-    { value: "asignado", label: "Asignados" },
-    { value: "descartado", label: "Descartados" },
+    { value: "PENDING", label: "Pendientes" },
+    { value: "ASSIGNED", label: "Asignados" },
+    { value: "DISCARDED", label: "Descartados" },
   ];
 
   return (
@@ -758,7 +829,7 @@ export default function OrphanQueuePage({
               style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
             >
               <AlertCircle size={11} />
-              {conteos.pendiente} pendientes
+              {conteos.PENDING} pendientes
             </span>
           </div>
           <p className="mt-1 text-[13px]" style={{ color: "#6B7280" }}>
@@ -770,9 +841,9 @@ export default function OrphanQueuePage({
       <main className="mx-auto max-w-[1400px] px-10 py-7">
         {/* SUMMARY CARDS */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SummaryCard label="Pendientes" count={conteos.pendiente} icon={Clock} color="#F59E0B" dot="#F59E0B" delay={0} />
-          <SummaryCard label="Asignados" count={conteos.asignado} icon={CheckCircle2} color="#10B981" dot="#10B981" delay={0.05} />
-          <SummaryCard label="Descartados" count={conteos.descartado} icon={X} color="#9CA3AF" dot="#9CA3AF" delay={0.1} />
+          <SummaryCard label="Pendientes" count={conteos.PENDING} icon={Clock} color="#F59E0B" dot="#F59E0B" delay={0} />
+          <SummaryCard label="Asignados" count={conteos.ASSIGNED} icon={CheckCircle2} color="#10B981" dot="#10B981" delay={0.05} />
+          <SummaryCard label="Descartados" count={conteos.DISCARDED} icon={X} color="#9CA3AF" dot="#9CA3AF" delay={0.1} />
           <SummaryCard label="Recibidos hoy" count={conteos.hoy} icon={Calendar} color="#3B82F6" dot="#3B82F6" delay={0.15} />
         </div>
 
@@ -822,39 +893,51 @@ export default function OrphanQueuePage({
 
         {/* LISTA */}
         <div className="space-y-3">
-          <AnimatePresence mode="popLayout">
-            {filtrados.length > 0 ? (
-              filtrados.map((doc, i) => (
-                <OrphanDocumentRow
-                  key={doc.id}
-                  doc={doc}
-                  delay={i * 0.04}
-                  onPreview={setPreview}
-                  onAsignar={handleAssignToExpediente}
-                  onCrearExpediente={handleCreateExpedienteFromDocument}
-                  onDescartar={setConfirmDiscard}
-                />
-              ))
-            ) : (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.25, ease: EASE_OUT }}
-                className="rounded-2xl bg-white px-5 py-16 text-center"
-                style={{ border: "1px solid #E5E7EB" }}
-              >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3">
-                  <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-                  <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-                </svg>
-                <p className="text-[13px]" style={{ color: "#6B7280" }}>
-                  No hay documentos que coincidan con los filtros.
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {loading ? (
+            <div className="rounded-2xl bg-white px-5 py-16 text-center" style={{ border: "1px solid #E5E7EB" }}>
+              <div className="mx-auto mb-3 h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: ACCENT, borderTopColor: "transparent" }} />
+              <p className="text-[13px]" style={{ color: "#6B7280" }}>Cargando documentos…</p>
+            </div>
+          ) : loadError ? (
+            <div className="rounded-2xl bg-white px-5 py-16 text-center" style={{ border: "1px solid #E5E7EB" }}>
+              <AlertCircle size={22} className="mx-auto mb-2" style={{ color: "#EF4444" }} />
+              <p className="text-[13px]" style={{ color: "#6B7280" }}>{loadError}</p>
+            </div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {filtrados.length > 0 ? (
+                filtrados.map((doc, i) => (
+                  <OrphanDocumentRow
+                    key={doc.id}
+                    doc={doc}
+                    delay={i * 0.04}
+                    onPreview={setPreview}
+                    onAsignar={handleAssignToExpediente}
+                    onCrearExpediente={handleCreateExpedienteFromDocument}
+                    onDescartar={setConfirmDiscard}
+                  />
+                ))
+              ) : (
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25, ease: EASE_OUT }}
+                  className="rounded-2xl bg-white px-5 py-16 text-center"
+                  style={{ border: "1px solid #E5E7EB" }}
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-3">
+                    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                  </svg>
+                  <p className="text-[13px]" style={{ color: "#6B7280" }}>
+                    No hay documentos que coincidan con los filtros.
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       </main>
 
@@ -908,12 +991,14 @@ export default function OrphanQueuePage({
                     <CanalChip canal={preview.canal} />
                   </DetailRow>
                   <DetailRow label="Remitente" value={preview.remitente} />
-                  <DetailRow label="Recepción" value={preview.timestamp} mono />
+                  <DetailRow label="Recepción" value={fmtFecha(preview.timestamp)} mono />
 
-                  <div className="rounded-lg bg-white p-3" style={{ border: "1px solid #F3F4F6" }}>
-                    <p className="mb-1 text-[10px] uppercase tracking-wider" style={{ color: "#9CA3AF" }}>Mensaje original</p>
-                    <p className="text-[12px] italic leading-relaxed" style={{ color: "#4B5563" }}>“{preview.mensajeOriginal}”</p>
-                  </div>
+                  {preview.mensajeOriginal && (
+                    <div className="rounded-lg bg-white p-3" style={{ border: "1px solid #F3F4F6" }}>
+                      <p className="mb-1 text-[10px] uppercase tracking-wider" style={{ color: "#9CA3AF" }}>Mensaje original</p>
+                      <p className="text-[12px] italic leading-relaxed" style={{ color: "#4B5563" }}>“{preview.mensajeOriginal}”</p>
+                    </div>
+                  )}
 
                   <ExtractedData datos={preview.datosExtraidos} />
                 </div>
@@ -969,7 +1054,7 @@ export default function OrphanQueuePage({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDiscard(confirmDiscard.id)}
+                  onClick={() => handleDiscard(confirmDiscard)}
                   className="rounded-full px-4 py-2 text-[12px] font-medium text-white transition-colors"
                   style={{ backgroundColor: "#B91C1C" }}
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#991B1B")}
@@ -987,7 +1072,7 @@ export default function OrphanQueuePage({
       <AssignOrphanModal
         isOpen={isAssignModalOpen}
         documento={selectedOrphanDocument}
-        expedientes={EXPEDIENTES_ASIGNABLES}
+        expedientes={expedientes}
         onClose={() => setIsAssignModalOpen(false)}
         onAssign={handleAssignPersist}
         onAssigned={handleAssignSuccess}

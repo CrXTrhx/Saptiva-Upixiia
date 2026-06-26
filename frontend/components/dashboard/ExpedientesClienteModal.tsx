@@ -214,8 +214,8 @@ export function ExpedientesClienteModal({
                 <span
                   className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
                   style={{
-                    backgroundColor: statusColorMap.incompleto_vencido.bg,
-                    color: statusColorMap.incompleto_vencido.text,
+                    backgroundColor: statusColorMap.INCOMPLETE_EXPIRED.bg,
+                    color: statusColorMap.INCOMPLETE_EXPIRED.text,
                   }}
                 >
                   <AlertTriangle size={10} aria-hidden="true" />
