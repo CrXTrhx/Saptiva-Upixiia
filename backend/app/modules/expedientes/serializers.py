@@ -66,6 +66,8 @@ def serialize_expediente(db: Session, case: CaseFile) -> dict:
         "clienteCorreo": case.client_email or "",
         "fechaCreacion": iso(case.created_at),
         "estado": case.status_code,
+        "montoEstimado": float(case.estimated_amount),
+        "tipoOperacion": case.operation_type_code,
         "nextStepPrioritario": ns.prioritario(db, case.id),
         "capturista": _capturista_nombre(db, case),
         "documentosFaltantes": documentos_faltantes(db, case.id),

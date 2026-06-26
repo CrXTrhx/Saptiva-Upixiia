@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Documento, DocumentoRequerido } from "@/lib/types";
-import { DOCUMENTOS_REQUERIDOS } from "@/lib/types";
+import { DOCUMENTOS_REQUERIDOS, DOCUMENTO_REQUERIDO_LABELS } from "@/lib/types";
 
 // =============================================================================
 // P9 — Modal Subir / Reemplazar Documento
@@ -30,12 +30,12 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const EXT_PERMITIDAS = ["pdf", "jpg", "jpeg", "png"];
 
 const docEstadoConfig: Record<string, { label: string; bg: string; text: string }> = {
-  pendiente: { label: "Pendiente", bg: "#EAE7E6", text: "#5C5957" },
-  recibido: { label: "Recibido", bg: "#EBEEF2", text: "#4F5A6B" },
-  validado: { label: "Validado", bg: "#ECF0E8", text: "#536648" },
-  rechazado: { label: "Rechazado", bg: "#F6E6DF", text: "#9C4B2E" },
-  vencido: { label: "Vencido", bg: "#F6EFDD", text: "#7A6435" },
-  reemplazado: { label: "Reemplazado", bg: "#EFECE9", text: "#7A7470" },
+  PENDING: { label: "Pendiente", bg: "#EAE7E6", text: "#5C5957" },
+  RECEIVED: { label: "Recibido", bg: "#EBEEF2", text: "#4F5A6B" },
+  VALIDATED: { label: "Validado", bg: "#ECF0E8", text: "#536648" },
+  REJECTED: { label: "Rechazado", bg: "#F6E6DF", text: "#9C4B2E" },
+  EXPIRED: { label: "Vencido", bg: "#F6EFDD", text: "#7A6435" },
+  REPLACED: { label: "Reemplazado", bg: "#EFECE9", text: "#7A7470" },
 };
 
 type SubirDocumentoModalProps = {
@@ -83,7 +83,7 @@ export default function SubirDocumentoModal({
   loading = false,
 }: SubirDocumentoModalProps) {
   const [tipo, setTipo] = useState<DocumentoRequerido>(
-    documentoActual?.tipo ?? "INE",
+    documentoActual?.tipo ?? "OFFICIAL_ID",
   );
   const [archivo, setArchivo] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -152,7 +152,7 @@ export default function SubirDocumentoModal({
     : "Agrega un documento al expediente actual.";
   const submitDisabled = !tipo || !archivo || !!error || loading;
   const ecfg = documentoActual
-    ? docEstadoConfig[documentoActual.estado] ?? docEstadoConfig.pendiente
+    ? docEstadoConfig[documentoActual.estado] ?? docEstadoConfig.PENDING
     : null;
 
   return (
@@ -218,7 +218,7 @@ export default function SubirDocumentoModal({
                       Esto reemplazará el documento actual, que quedará en el histórico.
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]" style={{ color: "#5C5957" }}>
-                      <span className="font-medium" style={{ color: "#302F2D" }}>{documentoActual.tipo}</span>
+                      <span className="font-medium" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[documentoActual.tipo] ?? documentoActual.tipo}</span>
                       <span style={{ color: "#D8CFC9" }}>·</span>
                       <span className="font-mono">{documentoActual.filename}</span>
                       {ecfg && (
@@ -248,7 +248,7 @@ export default function SubirDocumentoModal({
               onBlur={(e) => (e.currentTarget.style.borderColor = "#E5DED6")}
             >
               {DOCUMENTOS_REQUERIDOS.map((dr) => (
-                <option key={dr} value={dr}>{dr}</option>
+                <option key={dr} value={dr}>{DOCUMENTO_REQUERIDO_LABELS[dr]}</option>
               ))}
             </select>
 

@@ -43,7 +43,7 @@ export const nuevaVentaSchema = z.object({
     })
     .refine((n) => n > 0, "Debe ser mayor a $0"),
 
-  tipoOperacion: z.enum(["blindaje", "venta_vehiculo"], {
+  tipoOperacion: z.enum(["ARMORING", "VEHICLE_SALE"], {
     message: "Selecciona una opción",
   }),
 });
