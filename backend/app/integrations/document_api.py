@@ -14,11 +14,15 @@ automatico ILLEGIBLE.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass, field
 
 from app.core.codes import DocType
 from app.core.config import settings
 from app.integrations import google_docai
+
+# Vigencia de la INE: suele venir como rango de anios "2021-2031" (emision-expiracion).
+_YEAR_RANGE = re.compile(r"(?:19|20)\d{2}")
 
 
 class DocumentApiError(Exception):
@@ -88,6 +92,13 @@ def extract(
             raise DocumentApiError(
                 f"No se pudieron extraer los datos del documento: {exc}"
             ) from exc
+
+    # INE: si la vigencia llego como texto (ej. "2021-2031") y no como fecha,
+    # tomamos el ultimo anio del rango como expiracion (31 de diciembre).
+    if expiry_date is None and detected == DocType.OFFICIAL_ID:
+        years = _YEAR_RANGE.findall(str(fields.get("vigencia", "")))
+        if years:
+            expiry_date = dt.date(max(int(y) for y in years), 12, 31)
 
     return ExtractionResult(
         detected_type=detected,

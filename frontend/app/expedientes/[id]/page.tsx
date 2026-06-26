@@ -81,6 +81,7 @@ const estadoGlobalConfig: Record<Estado, { label: string; dot: string; bg: strin
 };
 
 const docEstadoConfig: Record<string, { label: string; dot: string; bg: string; text: string; Icon: typeof Check }> = {
+  PROCESSING:{ label: "Procesando",  dot: "#C99A5B", bg: "#FBEFD9", text: "#A86518", Icon: Sparkles },
   PENDING:   { label: "Pendiente",   dot: "#989396", bg: "#EAE7E6", text: "#5C5957", Icon: Clock },
   RECEIVED:  { label: "Recibido",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B", Icon: FileText },
   VALIDATED: { label: "Validado",    dot: "#8FA585", bg: "#ECF0E8", text: "#536648", Icon: Check },
@@ -251,6 +252,29 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
   const ccfg = canalConfig[doc.canal];
   const CanalIcon = ccfg?.Icon ?? Upload;
 
+  if (doc.estado === "PROCESSING") {
+    return (
+      <div className="rounded-lg p-4 flex gap-4" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
+        <div className="w-16 h-20 rounded-md flex items-center justify-center shrink-0" style={{ backgroundColor: "#F0EBE5" }}>
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.1, ease: "linear" }}>
+            <Sparkles size={18} strokeWidth={1.75} style={{ color: "#C99A5B" }} />
+          </motion.div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo}</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: "#FBEFD9", color: "#A86518" }}>Analizando…</span>
+          </div>
+          <p className="font-mono text-[11px] mb-2 truncate" style={{ color: "#989396" }}>{doc.filename}</p>
+          <p className="text-[11px] mb-2" style={{ color: "#5C5957" }}>Procesando documento con Document AI…</p>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "#F0EBE5" }}>
+            <motion.div className="h-full rounded-full" style={{ width: "40%", backgroundColor: "#C99A5B" }} animate={{ x: ["-100%", "250%"] }} transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg p-4 flex gap-4 flex-wrap md:flex-nowrap" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
       <DocPreview doc={doc} onOpen={onOpen} />
@@ -382,6 +406,19 @@ function DetalleContent() {
       .catch(() => setDataStatus("error"));
   }, [id]);
 
+  // Mientras haya documentos en analisis (PROCESSING), refresca el detalle cada pocos
+  // segundos para reflejar el resultado (datos extraidos, estado, historial). Como el
+  // estado vive en el backend, esto sigue funcionando aunque se recargue la pagina.
+  const hayProcesando = (detalle?.documentos ?? []).some((d) => d.estado === "PROCESSING");
+  useEffect(() => {
+    if (!hayProcesando) return;
+    const t = setInterval(async () => {
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+    }, 2500);
+    return () => clearInterval(t);
+  }, [hayProcesando, id]);
+
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
@@ -485,13 +522,22 @@ function DetalleContent() {
 
   async function handleSubirManual(tipo: DocumentoRequerido, archivo: File) {
     if (!detalle) return;
-    setModalLoading(true);
+    // Cierra la modal de inmediato. El backend guarda el documento en estado
+    // PROCESSING y lo analiza en segundo plano; lo agregamos a la lista para que
+    // aparezca la barra de "procesando". El polling (efecto abajo) lo actualizara
+    // al terminar el analisis, y al recargar la pagina el estado persiste.
+    setModal({ type: "none" });
     try {
       const newDoc = await expedientesService.subirDocumentoManual(id, tipo, archivo);
-      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "DOCUMENT_RECEIVED", descripcion: `Documento ${DOCUMENTO_REQUERIDO_LABELS[tipo] ?? tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
-      setModal({ type: "none" }); showToast("Documento subido");
-    } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
+      setDetalle((prev) => prev ? {
+        ...prev,
+        documentos: [...prev.documentos, newDoc],
+        checklist: prev.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c),
+      } : prev);
+      showToast("Documento subido, analizando…");
+    } catch {
+      showToast("Error al subir documento");
+    }
   }
 
   async function handleEditarDatos(datos: EditarDatosValues) {
