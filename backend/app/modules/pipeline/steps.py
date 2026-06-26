@@ -31,11 +31,13 @@ def detectar_tipo(ctx: PipelineContext) -> None:
 
 
 def extraer(ctx: PipelineContext) -> None:
-    """Paso 2: llama a la Document API (stub) y recibe campos + confianza."""
+    """Paso 2: clasifica + extrae con Google Document AI (campos + confianza)."""
     if ctx.rejected:
         return
     try:
-        res = document_api.extract(ctx.file_name, ctx.mime_type, ctx.declared_type)
+        res = document_api.extract(
+            ctx.content, ctx.mime_type, ctx.declared_type, ctx.file_name
+        )
     except document_api.DocumentApiError as exc:
         ctx.reject(RejectionReason.ILLEGIBLE, str(exc))
         return

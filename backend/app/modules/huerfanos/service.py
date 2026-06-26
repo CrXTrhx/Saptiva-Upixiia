@@ -32,7 +32,7 @@ def crear_huerfano(
     suggested_type = None
     fields: dict | None = None
     try:
-        res = document_api.extract(stored.file_name, stored.mime_type, None)
+        res = document_api.extract(content, stored.mime_type, None, stored.file_name)
         fields = res.fields
         suggested_type = res.detected_type
         extracted_curp = (res.fields or {}).get("curp")

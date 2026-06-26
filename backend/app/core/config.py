@@ -41,8 +41,16 @@ class Settings(BaseSettings):
     r2_public_base_url: str = ""
 
     # Integraciones
-    document_api_url: str = "https://adjudicator.saptiva.com"
-    document_api_key: str = ""
+    # Google Document AI: 1 clasificador (verifica el tipo) + 1 extractor por tipo.
+    gcp_project_id: str = ""
+    docai_location: str = "us"  # us | eu (Document AI no tiene region LATAM)
+    docai_classifier_id: str = ""
+    docai_extractor_official_id: str = ""   # INE / identificacion oficial
+    docai_extractor_curp: str = ""
+    docai_extractor_tax_status: str = ""    # Constancia de Situacion Fiscal
+    docai_extractor_proof_address: str = ""  # Comprobante de domicilio
+    # Ruta al JSON del service account; si se define, se exporta a la env var estandar.
+    google_application_credentials: str = ""
     sinch_api_token: str = ""
     sinch_webhook_secret: str = ""
     email_webhook_secret: str = ""

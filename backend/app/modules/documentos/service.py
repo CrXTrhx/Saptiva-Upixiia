@@ -15,6 +15,8 @@ from app.core.codes import (
     DocType,
     EventType,
 )
+from app.core.codes import RejectionReason
+from app.core.db import db_session
 from app.core.errors import ConflictError, NotFoundError
 from app.integrations import storage
 from app.models import AppUser, CaseChecklistItem, CaseFile, Document
@@ -85,11 +87,85 @@ def ingest_document(
         declared_type=declared_type,
         file_name=stored.file_name,
         mime_type=stored.mime_type,
+        content=content,
         actor=actor,
         actor_user_id=actor_user_id,
     )
     run_pipeline(ctx)
     return doc
+
+
+def create_processing_document(
+    db: Session,
+    case: CaseFile,
+    *,
+    content: bytes,
+    file_name: str,
+    mime_type: str | None,
+    channel: str,
+    sender: str | None,
+    declared_type: str | None,
+) -> Document:
+    """Almacena el archivo y crea el Documento en estado PROCESSING (sin pipeline).
+
+    El analisis (Document AI) lo corre `process_document` en segundo plano. Guardar
+    el documento de inmediato lo hace visible aunque el usuario recargue la pagina.
+    """
+    stored = storage.store(content, file_name, mime_type)
+    doc = Document(
+        case_file_id=case.id,
+        declared_type_code=declared_type,
+        file_url=stored.url,
+        file_name=stored.file_name,
+        mime_type=stored.mime_type,
+        channel_code=channel,
+        sender=sender,
+        status_code=DocStatus.PROCESSING,
+    )
+    db.add(doc)
+    db.flush()
+    return doc
+
+
+def process_document(
+    doc_id: str,
+    *,
+    actor: str = "system",
+    actor_user_id: uuid.UUID | None = None,
+) -> None:
+    """Corre el pipeline de extraccion/validacion sobre un documento PROCESSING.
+
+    Se ejecuta en segundo plano (BackgroundTask), por lo que abre su PROPIA sesion.
+    Si algo inesperado falla, marca el documento como rechazado para no dejarlo
+    colgado en PROCESSING.
+    """
+    uid_actor = str(actor_user_id) if actor_user_id else None
+    try:
+        with db_session(user_id=uid_actor, user_label=actor) as db:
+            doc = db.get(Document, uuid.UUID(str(doc_id)))
+            if doc is None or doc.status_code != DocStatus.PROCESSING:
+                return
+            case = db.get(CaseFile, doc.case_file_id)
+            try:
+                content = storage.read(doc.file_url)
+            except Exception:
+                content = None
+            ctx = PipelineContext(
+                db=db, document=doc, case=case,
+                declared_type=doc.declared_type_code,
+                file_name=doc.file_name or "documento", mime_type=doc.mime_type,
+                content=content, actor=actor, actor_user_id=actor_user_id,
+            )
+            run_pipeline(ctx)
+    except Exception:
+        # Red de seguridad: no dejar el documento atascado en PROCESSING.
+        with db_session(user_id=uid_actor, user_label=actor) as db:
+            doc = db.get(Document, uuid.UUID(str(doc_id)))
+            if doc is not None and doc.status_code == DocStatus.PROCESSING:
+                doc.status_code = DocStatus.REJECTED
+                doc.rejection_reason_code = RejectionReason.OTHER
+                doc.rejection_note = "No se pudo procesar el documento"
+                doc.is_auto_rejected = 1
 
 
 def ingest_existing(
@@ -119,9 +195,17 @@ def ingest_existing(
     db.add(doc)
     db.flush()
 
+    # El archivo ya esta almacenado; recuperamos los bytes para que el pipeline pueda
+    # reclasificar/extraer con Document AI.
+    try:
+        content = storage.read(file_url)
+    except Exception:
+        content = None
+
     ctx = PipelineContext(
         db=db, document=doc, case=case, declared_type=declared_type,
-        file_name=file_name, mime_type=mime_type, actor=actor, actor_user_id=actor_user_id,
+        file_name=file_name, mime_type=mime_type, content=content,
+        actor=actor, actor_user_id=actor_user_id,
     )
     run_pipeline(ctx)
     return doc

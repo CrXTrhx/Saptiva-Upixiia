@@ -601,6 +601,7 @@ INSERT INTO cat_document_type(code, label_es, is_checklist_item, validity_months
     ('OTHER',            'Otro',                                   0, NULL, 0, 0, 0, 9);
 
 INSERT INTO cat_document_status(code, label_es, sort_order) VALUES
+    ('PROCESSING','Procesando',  0),
     ('RECEIVED',  'Recibido',   1),
     ('VALIDATED', 'Validado',   2),
     ('REJECTED',  'Rechazado',  3),

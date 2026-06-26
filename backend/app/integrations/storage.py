@@ -79,6 +79,25 @@ def store(content: bytes, file_name: str, mime_type: str | None) -> StoredFile:
     return StoredFile(url=url, key=key, file_name=file_name, mime_type=mime_type)
 
 
+def read(stored_value: str) -> bytes:
+    """Lee de vuelta los bytes de un archivo ya almacenado (simetrico a store()).
+
+    Acepta lo que se guarda en document.file_url:
+      * local: la URL completa (.../files/<key>) -> se lee del disco.
+      * r2: la KEY del objeto -> se baja con get_object.
+    """
+    if not stored_value:
+        raise ValueError("stored_value vacio")
+
+    if stored_value.startswith("http://") or stored_value.startswith("https://"):
+        key = stored_value.rsplit("/files/", 1)[-1]
+        return (_LOCAL_DIR / key).read_bytes()
+
+    # Es una key de R2.
+    obj = _r2_client().get_object(Bucket=settings.r2_bucket, Key=stored_value)
+    return obj["Body"].read()
+
+
 def resolve_url(stored_value: str | None) -> str | None:
     """Convierte lo guardado en file_url a una URL servible por el frontend.
 

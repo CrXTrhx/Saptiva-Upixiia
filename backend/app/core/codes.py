@@ -26,6 +26,7 @@ OPEN_STATUSES = {
 
 
 class DocStatus:
+    PROCESSING = "PROCESSING"  # subido; Document AI lo esta analizando en segundo plano
     RECEIVED = "RECEIVED"
     VALIDATED = "VALIDATED"
     REJECTED = "REJECTED"
