@@ -229,6 +229,14 @@ export const expedientesService = {
     return apiUpload<Documento>(`/documentos/${docId}/reemplazar`, form, "POST");
   },
 
+  // Restaura la versión anterior de un documento reemplazado: el documento
+  // vigente vuelve al histórico y el anterior queda activo (devuelve el activo).
+  async restaurarVersion(docId: string): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/restaurar-version`, {
+      method: "POST",
+    });
+  },
+
   async subirDocumentoManual(
     expedienteId: string,
     tipo: DocumentoRequerido,

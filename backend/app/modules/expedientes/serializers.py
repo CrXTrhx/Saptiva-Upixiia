@@ -84,9 +84,14 @@ def serialize_documento(db: Session, doc: Document, with_version: bool = True) -
         }
     version_anterior = None
     if with_version:
+        # La version anterior es el documento que fue reemplazado por este.
+        # Tras una restauracion puede existir mas de un candidato (cadena de
+        # reemplazos): tomamos el mas reciente para mostrar SOLO un nivel atras.
         prev = db.execute(
-            select(Document).where(Document.replaced_by_id == doc.id)
-        ).scalar_one_or_none()
+            select(Document)
+            .where(Document.replaced_by_id == doc.id)
+            .order_by(Document.reception_at.desc())
+        ).scalars().first()
         if prev:
             version_anterior = serialize_documento(db, prev, with_version=False)
 

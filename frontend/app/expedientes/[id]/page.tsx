@@ -47,7 +47,6 @@ function localizarDescripcion(texto: string): string {
   return texto.replace(CODIGO_RE, (m) => CODIGO_A_ETIQUETA[m] ?? m);
 }
 import type {
-  ChecklistItem as ChecklistItemType,
   ConsultaLLM,
   Documento,
   DocumentoRequerido,
@@ -57,7 +56,6 @@ import type {
   ExpedienteDetalle,
   MotivoRechazo,
   Nota,
-  NextStep,
   PrioridadNextStep,
   Canal,
   TipoOperacion,
@@ -245,8 +243,8 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
   );
 }
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
-  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior }: {
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.PENDING;
   const ccfg = canalConfig[doc.canal];
@@ -310,10 +308,17 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
           </div>
         )}
         {doc.versionAnterior && (
-          <div className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer" style={{ color: "#A86518" }}>
+          <button
+            type="button"
+            onClick={() => onVerVersionAnterior(doc)}
+            className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer rounded px-1 -mx-1 py-0.5 transition-colors hover:underline"
+            style={{ color: "#A86518" }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#FCEEDB")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+          >
             <CornerUpLeft size={10} />
             Ver versión anterior · {new Date(doc.versionAnterior.fechaRecepcion).toLocaleDateString("es-MX")}
-          </div>
+          </button>
         )}
         <div className="flex items-center gap-2 flex-wrap">
           {doc.estado !== "VALIDATED" && (
@@ -357,37 +362,6 @@ export default function ExpedienteDetallePage() {
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
 
-function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]): NextStep[] {
-  const activeByTipo = new Map(documentos.map((doc) => [doc.tipo, doc]));
-  const steps: NextStep[] = [];
-
-  const addStep = (id: string, texto: string, prioridad: PrioridadNextStep) => {
-    steps.push({ id, texto, prioridad });
-  };
-
-  const csf = activeByTipo.get("CSF");
-  if (csf?.estado === "rechazado") {
-    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "HIGH");
-  }
-
-  const curp = activeByTipo.get("CURP");
-  if (curp?.estado === "recibido") {
-    addStep("ns-validar-curp", "Validar CURP recibida", "HIGH");
-  }
-
-  const comprobante = activeByTipo.get("comprobante");
-  if (!comprobante || comprobante.estado === "pendiente") {
-    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "MEDIUM");
-  }
-
-  const ine = activeByTipo.get("INE");
-  if (ine?.estado === "validado") {
-    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "LOW");
-  }
-
-  return steps;
-}
-
 function DetalleContent() {
   const params = useParams();
   const router = useRouter();
@@ -422,11 +396,17 @@ function DetalleContent() {
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
+  // Documento vigente cuyo botón "Ver versión anterior" se abrió (muestra doc.versionAnterior).
+  const [versionAnteriorDe, setVersionAnteriorDe] = useState<Documento | null>(null);
+  const [restaurarLoading, setRestaurarLoading] = useState(false);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const handleOpenPreview = useCallback((doc: Documento) => setPreviewDoc(doc), []);
   const handleClosePreview = useCallback(() => setPreviewDoc(null), []);
+  const handleVerVersionAnterior = useCallback((doc: Documento) => {
+    if (doc.versionAnterior) setVersionAnteriorDe(doc);
+  }, []);
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
@@ -444,7 +424,8 @@ function DetalleContent() {
 
   const checklist = detalle?.checklist ?? [];
   const documentos = detalle?.documentos ?? [];
-  const nextSteps = deriveNextSteps(checklist, documentos);
+  // Los next steps los calcula el backend (con prioridades HIGH/MEDIUM/LOW).
+  const nextSteps = detalle?.nextSteps ?? [];
   const historial = detalle?.historial ?? [];
   const notas = detalle?.notas ?? [];
   const exp = detalle?.expediente;
@@ -518,6 +499,29 @@ function DetalleContent() {
       setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento reemplazado");
     } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
+  }
+
+  // Restaura la versión anterior: el doc vigente (docId) pasa a histórico y la
+  // versión anterior vuelve a estar activa (RECEIVED, pendiente de validar).
+  async function handleRestaurarVersion(docId: string) {
+    if (!detalle) return;
+    setRestaurarLoading(true);
+    const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
+    try {
+      const restaurado = await expedientesService.restaurarVersion(docId);
+      const ev: Evento = { id: "ev-rest-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} restaurado a la versión anterior`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({
+        ...detalle,
+        documentos: [
+          ...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d),
+          restaurado,
+        ],
+        checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: restaurado.id } : c),
+        historial: [ev, ...detalle.historial],
+      });
+      setVersionAnteriorDe(null);
+      showToast("Versión anterior restaurada");
+    } catch { showToast("Error al restaurar la versión anterior"); } finally { setRestaurarLoading(false); }
   }
 
   async function handleSubirManual(tipo: DocumentoRequerido, archivo: File) {
@@ -800,7 +804,7 @@ function DetalleContent() {
                 >
                   Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} />
               </Card>
             </motion.div>
           )}
@@ -834,7 +838,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} />
                   ))}
                 </div>
               )}
@@ -1063,6 +1067,84 @@ function DetalleContent() {
           </div>
         </Modal>
       )}
+      {versionAnteriorDe?.versionAnterior && (() => {
+        const prev = versionAnteriorDe.versionAnterior;
+        if (!prev) return null;
+        const dcfg = docEstadoConfig[prev.estado] ?? docEstadoConfig.PENDING;
+        return (
+          <Modal
+            open={!!versionAnteriorDe}
+            onClose={() => { if (!restaurarLoading) setVersionAnteriorDe(null); }}
+            title={`Versión anterior · ${DOCUMENTO_REQUERIDO_LABELS[prev.tipo] ?? prev.tipo}`}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-lg p-3" style={{ backgroundColor: "#FCEEDB", border: "1px solid #F0D9B8" }}>
+                <CornerUpLeft size={15} strokeWidth={2} style={{ color: "#A86518" }} className="mt-0.5 shrink-0" />
+                <p className="text-[12px]" style={{ color: "#8A6730" }}>
+                  Esta es la versión que se reemplazó. Puedes quedarte con ella (volverá a quedar activa, pendiente de validar) o conservar la versión más nueva.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]" style={{ color: "#5C5957" }}>
+                <Badge cfg={dcfg} small />
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span className="font-mono text-[11px]">{prev.filename}</span>
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span>{CANAL_LABELS[prev.canal] ?? prev.canal}</span>
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span className="tabular-nums">{new Date(prev.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+
+              {prev.motivoRechazo && (
+                <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#9C4B2E" }}>
+                  <AlertTriangle size={12} />
+                  Motivo de rechazo previo: {MOTIVO_RECHAZO_LABELS[prev.motivoRechazo.categoria] ?? prev.motivoRechazo.categoria}
+                  {prev.motivoRechazo.texto ? ` — ${prev.motivoRechazo.texto}` : ""}
+                </div>
+              )}
+
+              {prev.archivoUrl ? (
+                prev.mimeType.startsWith("image/") ? (
+                  <img src={prev.archivoUrl} alt={prev.filename} className="w-full rounded-xl object-contain" style={{ maxHeight: "60vh" }} />
+                ) : prev.mimeType === "application/pdf" ? (
+                  <iframe src={prev.archivoUrl} title={prev.filename} className="w-full h-[60vh] rounded-xl border border-[#E5DED6]" />
+                ) : (
+                  <div className="w-full h-[40vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                    <span className="text-sm" style={{ color: "#989396" }}>Tipo de archivo no compatible para previsualizar.</span>
+                  </div>
+                )
+              ) : (
+                <div className="w-full h-[40vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                  <span className="text-sm" style={{ color: "#989396" }}>No hay archivo disponible para esta versión.</span>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setVersionAnteriorDe(null)}
+                  disabled={restaurarLoading}
+                  className="rounded-md bg-white px-4 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
+                  style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+                >
+                  Volver a la más nueva
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRestaurarVersion(versionAnteriorDe.id)}
+                  disabled={restaurarLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium text-white transition-colors disabled:cursor-not-allowed"
+                  style={{ backgroundColor: restaurarLoading ? "#E7C9A0" : "#F19B42" }}
+                >
+                  <CornerUpLeft size={13} strokeWidth={2} />
+                  {restaurarLoading ? "Restaurando…" : "Quedarme con esta versión"}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
       {modal.type === "editar" && (
         <EditarDatosModal
           expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, montoEstimado: exp.montoEstimado, tipoOperacion: exp.tipoOperacion }}

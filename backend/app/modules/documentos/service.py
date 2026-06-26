@@ -328,6 +328,53 @@ def reemplazar_documento(
     return nuevo
 
 
+def restaurar_version(db: Session, doc: Document, user: AppUser) -> Document:
+    """Restaura la version anterior de un documento (inverso de reemplazar).
+
+    `doc` es el documento vigente. Busca la version inmediatamente anterior
+    (la que apunta a `doc` via replaced_by_id) y la vuelve a dejar activa,
+    enviando `doc` al historico. Es un swap de roles, por lo que solo se puede
+    retroceder un nivel: la version que se restaura mostrara a `doc` como su
+    nueva "version anterior".
+    """
+    prev = db.execute(
+        select(Document)
+        .where(Document.replaced_by_id == doc.id)
+        .order_by(Document.reception_at.desc())
+    ).scalars().first()
+    if prev is None:
+        raise ConflictError("El documento no tiene una version anterior")
+
+    # La version anterior vuelve a estar vigente, pendiente de revalidacion.
+    prev.status_code = DocStatus.RECEIVED
+    prev.replaced_by_id = None
+    prev.rejection_reason_code = None
+    prev.rejection_note = None
+    prev.is_auto_rejected = 0
+
+    # El documento vigente pasa al historico apuntando a la version restaurada,
+    # de modo que ahora figure como su version anterior (intercambio de roles).
+    doc.status_code = DocStatus.REPLACED
+    doc.replaced_by_id = prev.id
+    db.flush()
+
+    case = db.get(CaseFile, doc.case_file_id)
+    doc_type = prev.detected_type_code or prev.declared_type_code
+    item = _checklist_item(db, prev.case_file_id, doc_type)
+    if item:
+        item.status_code = ChecklistStatus.RECEIVED
+        item.current_document_id = prev.id
+        db.flush()
+
+    registrar_evento(
+        db, case.id, EventType.DOCUMENT_REPLACED,
+        f"Documento {doc_type or ''} restaurado a la version anterior por {user.full_name}",
+        actor=user.email, actor_user_id=user.id,
+    )
+    ns.recompute(db, case)
+    return prev
+
+
 def _maybe_to_validation(db: Session, case: CaseFile, user: AppUser) -> None:
     """Si todos los items del checklist estan validados y el caso esta en recepcion,
     lo pasa a 'en validacion' (listo para que el usuario marque completo)."""
