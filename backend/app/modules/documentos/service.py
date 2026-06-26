@@ -85,6 +85,7 @@ def ingest_document(
         declared_type=declared_type,
         file_name=stored.file_name,
         mime_type=stored.mime_type,
+        content=content,
         actor=actor,
         actor_user_id=actor_user_id,
     )
@@ -119,9 +120,17 @@ def ingest_existing(
     db.add(doc)
     db.flush()
 
+    # El archivo ya esta almacenado; recuperamos los bytes para que el pipeline pueda
+    # reclasificar/extraer con Document AI.
+    try:
+        content = storage.read(file_url)
+    except Exception:
+        content = None
+
     ctx = PipelineContext(
         db=db, document=doc, case=case, declared_type=declared_type,
-        file_name=file_name, mime_type=mime_type, actor=actor, actor_user_id=actor_user_id,
+        file_name=file_name, mime_type=mime_type, content=content,
+        actor=actor, actor_user_id=actor_user_id,
     )
     run_pipeline(ctx)
     return doc

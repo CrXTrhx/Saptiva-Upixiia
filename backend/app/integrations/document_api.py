@@ -1,13 +1,15 @@
-"""Cliente de la Document API (adjudicator.saptiva.com) — STUB.
+"""Extraccion/clasificacion de documentos con Google Document AI.
 
-La integracion real se conecta despues. El stub produce extracciones plausibles y
-permite simular los casos del PRD para la demo:
-  * archivo con 'ilegible'/'borroso' en el nombre -> confianza baja (se rechaza).
-  * archivo con 'error'/'fail'/'corrupto' -> la API "no puede procesar" (raise).
-  * el tipo detectado se infiere del nombre si difiere del declarado.
+Orquesta los procesadores de Document AI (ver app/integrations/google_docai.py):
+  1) Clasificador  -> verifica de que tipo es el documento (y con que confianza).
+  2) Extractor por tipo -> extrae los campos del tipo detectado.
 
-Contrato de salida (lo consume el pipeline):
-  { detected_type, confidence, issue_date, expiry_date?, fields }
+Contrato de salida (lo consume el pipeline en modules/pipeline/steps.py):
+  ExtractionResult(detected_type, confidence, issue_date, expiry_date, fields)
+
+Si Document AI no puede procesar el documento (config faltante, cuota, mime no
+soportado, etc.) se levanta DocumentApiError; el pipeline lo traduce a un rechazo
+automatico ILLEGIBLE.
 """
 from __future__ import annotations
 
@@ -15,10 +17,12 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 from app.core.codes import DocType
+from app.core.config import settings
+from app.integrations import google_docai
 
 
 class DocumentApiError(Exception):
-    """La Document API no pudo procesar el documento."""
+    """La extraccion de documentos no pudo procesar el documento."""
 
 
 @dataclass
@@ -30,57 +34,60 @@ class ExtractionResult:
     fields: dict = field(default_factory=dict)
 
 
-_TYPE_KEYWORDS = {
-    "ine": DocType.OFFICIAL_ID,
-    "ife": DocType.OFFICIAL_ID,
-    "pasaporte": DocType.OFFICIAL_ID,
-    "curp": DocType.CURP,
-    "csf": DocType.TAX_STATUS_CERT,
-    "constancia": DocType.TAX_STATUS_CERT,
-    "fiscal": DocType.TAX_STATUS_CERT,
-    "comprobante": DocType.PROOF_OF_ADDRESS,
-    "domicilio": DocType.PROOF_OF_ADDRESS,
-    "recibo": DocType.PROOF_OF_ADDRESS,
+# Etiqueta del clasificador -> codigo interno de tipo (codigos = etiquetas recomendadas).
+_LABEL_TO_DOCTYPE = {
+    DocType.OFFICIAL_ID: DocType.OFFICIAL_ID,
+    DocType.CURP: DocType.CURP,
+    DocType.TAX_STATUS_CERT: DocType.TAX_STATUS_CERT,
+    DocType.PROOF_OF_ADDRESS: DocType.PROOF_OF_ADDRESS,
+    DocType.OTHER: DocType.OTHER,
 }
-_FAIL_KEYWORDS = ("error", "fail", "corrupto", "corrupt", "noproc")
-_LOW_QUALITY = ("ilegible", "borroso", "blurry", "lowq")
+
+
+def _extractor_for(doc_type: str | None) -> str:
+    return {
+        DocType.OFFICIAL_ID: settings.docai_extractor_official_id,
+        DocType.CURP: settings.docai_extractor_curp,
+        DocType.TAX_STATUS_CERT: settings.docai_extractor_tax_status,
+        DocType.PROOF_OF_ADDRESS: settings.docai_extractor_proof_address,
+    }.get(doc_type or "", "")
 
 
 def extract(
-    file_name: str, mime_type: str | None, declared_type: str | None
+    content: bytes,
+    mime_type: str | None,
+    declared_type: str | None,
+    file_name: str | None = None,
 ) -> ExtractionResult:
-    name = (file_name or "").lower()
+    """Clasifica y extrae un documento con Google Document AI.
 
-    if any(k in name for k in _FAIL_KEYWORDS):
-        raise DocumentApiError("El documento no pudo ser procesado")
+    `file_name` es opcional (Document AI trabaja sobre los bytes); se mantiene para
+    trazabilidad y para permitir fakes deterministas en pruebas.
+    """
+    if not content:
+        raise DocumentApiError("El documento esta vacio")
 
-    detected = declared_type
-    for kw, code in _TYPE_KEYWORDS.items():
-        if kw in name:
-            detected = code
-            break
+    try:
+        label, confidence = google_docai.classify(content, mime_type)
+    except google_docai.DocAiError as exc:
+        raise DocumentApiError(f"No se pudo clasificar el documento: {exc}") from exc
 
-    confidence = 50.0 if any(k in name for k in _LOW_QUALITY) else 95.0
-    today = dt.date.today()
+    detected = _LABEL_TO_DOCTYPE.get(label, label or declared_type)
+
+    fields: dict = {}
     issue_date: dt.date | None = None
     expiry_date: dt.date | None = None
-    fields: dict = {"nombre": "Juan Perez (demo)"}
 
-    if detected == DocType.PROOF_OF_ADDRESS:
-        # 'vencido' -> emitido hace 4 meses (excede 3); si no, hace 10 dias.
-        issue_date = today - dt.timedelta(days=120 if "vencido" in name else 10)
-        fields["domicilio"] = "Calle Falsa 123, CDMX"
-        fields["codigo_postal"] = "01000"
-    elif detected == DocType.OFFICIAL_ID:
-        issue_date = today - dt.timedelta(days=365)
-        expiry_date = today - dt.timedelta(days=5) if "vencido" in name else today + dt.timedelta(days=900)
-        fields["curp"] = "PEPJ900101HDFRRN09"
-        fields["vigencia"] = expiry_date.isoformat()
-    elif detected == DocType.CURP:
-        fields["curp"] = "PEPJ900101HDFRRN09"
-    elif detected == DocType.TAX_STATUS_CERT:
-        issue_date = today - dt.timedelta(days=400 if "vencido" in name else 20)
-        fields["rfc"] = "PEPJ900101AB1"
+    processor_id = _extractor_for(detected)
+    if processor_id:
+        try:
+            fields, issue_date, expiry_date = google_docai.extract_fields(
+                processor_id, content, mime_type
+            )
+        except google_docai.DocAiError as exc:
+            raise DocumentApiError(
+                f"No se pudieron extraer los datos del documento: {exc}"
+            ) from exc
 
     return ExtractionResult(
         detected_type=detected,
