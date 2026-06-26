@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -20,8 +21,16 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => authService.getCurrentUser());
-  const [loading] = useState(false);
+  // Inicia sin usuario y "loading" en true: el primer render del cliente coincide
+  // con el del servidor (que no tiene localStorage). La sesion se lee tras montar,
+  // en useEffect, evitando el error de hidratacion.
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setUser(authService.getCurrentUser());
+    setLoading(false);
+  }, []);
 
   const login = useCallback(
     async (credentials: LoginCredentials): Promise<string | null> => {

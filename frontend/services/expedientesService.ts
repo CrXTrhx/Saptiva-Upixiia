@@ -136,6 +136,16 @@ export const expedientesService = {
     });
   },
 
+  async actualizarExpediente(
+    id: string,
+    datos: Partial<CreateExpedienteRequest>,
+  ): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(datos),
+    });
+  },
+
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
     return apiClient<Expediente[]>(`/expedientes${buildQuery(query)}`);
   },
@@ -171,6 +181,12 @@ export const expedientesService = {
     return apiClient<Documento>(`/documentos/${docId}/rechazar`, {
       method: "PATCH",
       body: JSON.stringify(motivo),
+    });
+  },
+
+  async revertirRechazoDocumento(docId: string): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/revertir-rechazo`, {
+      method: "PATCH",
     });
   },
 

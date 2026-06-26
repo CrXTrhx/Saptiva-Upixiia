@@ -182,7 +182,100 @@ def _new_case(db, user, nombre, monto, tipo) -> CaseFile:
     return exp_service.create_expediente(db, req, user)
 
 
-def seed_demo() -> None:
+# Planes de siembra: (estado_objetivo, cantidad). DEMO_PLAN = set grande para /docs;
+# SMALL_PLAN = set minimo (1-2 por estado) para una demo limpia que cubre todo.
+DEMO_PLAN = (
+    ("CAPTURING", 6),
+    ("RECEIVING", 8),
+    ("IN_VALIDATION", 6),
+    ("COMPLETE", 8),
+    ("INCOMPLETE_EXPIRED", 4),
+    ("CANCELLED", 4),
+    ("ARCHIVED", 3),
+)
+SMALL_PLAN = (
+    ("CAPTURING", 1),
+    ("RECEIVING", 2),
+    ("IN_VALIDATION", 1),
+    ("COMPLETE", 2),
+    ("INCOMPLETE_EXPIRED", 1),
+    ("CANCELLED", 1),
+    ("ARCHIVED", 1),
+)
+
+HUERFANOS = [
+    (Channel.WHATSAPP, "+525540001111", "ine_persona_desconocida.jpg", "Hola, les mando mi identificacion"),
+    (Channel.EMAIL, "remitente1@correo.com", "curp_sin_codigo.pdf", "Adjunto mi CURP"),
+    (Channel.WHATSAPP, "+525540002222", "comprobante_domicilio.pdf", "mi comprobante"),
+    (Channel.EMAIL, "remitente2@correo.com", "constancia_fiscal.pdf", "constancia"),
+    (Channel.WHATSAPP, "+525540003333", "documento_borroso_ilegible.jpg", "foto"),
+    (Channel.WHATSAPP, "+525540004444", "ine_cliente.jpg", "aqui esta mi INE"),
+    (Channel.EMAIL, "remitente3@correo.com", "recibo_luz.pdf", "comprobante de domicilio"),
+    (Channel.WHATSAPP, "+525540005555", "documento.pdf", "buenas"),
+]
+
+
+def _seed_one(db, user, objetivo: str, nombre: str, monto, tipo) -> None:
+    """Crea un expediente y lo lleva al estado objetivo recorriendo la logica real."""
+    case = _new_case(db, user, nombre, monto, tipo)
+    cid = case.id
+
+    if objetivo == "CAPTURING":
+        _backdate(db, cid, random.randint(0, 2))
+
+    elif objetivo == "RECEIVING":
+        for dt in random.sample(ALL_TYPES, k=random.randint(1, 3)):
+            _add_doc(db, case, user, dt)
+        if random.random() < 0.5:
+            _nota(db, case, user, "Cliente confirmo que enviara el resto esta semana.")
+        # algunos inactivos (>3 dias) para disparar recordatorio
+        dias = random.choice([1, 2, 6, 9, 12])
+        _backdate(db, cid, dias)
+        db.refresh(case)
+        ns.recompute(db, case)
+
+    elif objetivo == "IN_VALIDATION":
+        for dt in ALL_TYPES:
+            _add_doc(db, case, user, dt)
+        _backdate(db, cid, random.randint(1, 5))
+
+    elif objetivo == "COMPLETE":
+        for dt in ALL_TYPES:
+            _add_doc(db, case, user, dt)
+        _validate_all(db, case, user)
+        db.refresh(case)
+        exp_service.marcar_completo(db, case, user)
+        if random.random() < 0.6:
+            llm_service.consultar(db, case, "Hay que avisar al SAT?", user)
+            llm_service.consultar(db, case, "Se puede pagar en efectivo?", user)
+        _backdate(db, cid, random.randint(8, 40))
+
+    elif objetivo == "INCOMPLETE_EXPIRED":
+        for dt in ALL_TYPES:
+            _add_doc(db, case, user, dt)
+        _validate_all(db, case, user)
+        db.refresh(case)
+        _expire_comprobante(db, case, user)
+        _backdate(db, cid, random.randint(20, 45))
+
+    elif objetivo == "CANCELLED":
+        if random.random() < 0.5:
+            _add_doc(db, case, user, DocType.OFFICIAL_ID)
+        db.refresh(case)
+        exp_service.cancelar(db, case, "cliente desistio de la compra", user)
+        _backdate(db, cid, random.randint(10, 30))
+
+    elif objetivo == "ARCHIVED":
+        for dt in ALL_TYPES:
+            _add_doc(db, case, user, dt)
+        _validate_all(db, case, user)
+        db.refresh(case)
+        exp_service.marcar_completo(db, case, user)
+        exp_service.archivar(db, case, user)
+        _backdate(db, cid, random.randint(30, 60))
+
+
+def seed_demo(plan=DEMO_PLAN, *, n_huerfanos: int | None = None) -> None:
     users = _ensure_users()
     nombres = NOMBRES.copy()
     random.shuffle(nombres)
@@ -191,80 +284,13 @@ def seed_demo() -> None:
     def nxt():
         return next(it)
 
-    plan = (
-        # (estado_objetivo, cantidad)
-        ("CAPTURING", 6),
-        ("RECEIVING", 8),
-        ("IN_VALIDATION", 6),
-        ("COMPLETE", 8),
-        ("INCOMPLETE_EXPIRED", 4),
-        ("CANCELLED", 4),
-        ("ARCHIVED", 3),
-    )
-
     total = 0
     for objetivo, n in plan:
         for _ in range(n):
             user = random.choice(users)
             nombre, monto, tipo = nxt(), random.choice(MONTOS), random.choice(TIPOS)
             with db_session(user_id=str(user.id), user_label=user.email) as db:
-                case = _new_case(db, user, nombre, monto, tipo)
-                cid = case.id
-
-                if objetivo == "CAPTURING":
-                    _backdate(db, cid, random.randint(0, 2))
-
-                elif objetivo == "RECEIVING":
-                    for dt in random.sample(ALL_TYPES, k=random.randint(1, 3)):
-                        _add_doc(db, case, user, dt)
-                    if random.random() < 0.5:
-                        _nota(db, case, user, "Cliente confirmo que enviara el resto esta semana.")
-                    # algunos inactivos (>3 dias) para disparar recordatorio
-                    dias = random.choice([1, 2, 6, 9, 12])
-                    _backdate(db, cid, dias)
-                    db.refresh(case)
-                    ns.recompute(db, case)
-
-                elif objetivo == "IN_VALIDATION":
-                    for dt in ALL_TYPES:
-                        _add_doc(db, case, user, dt)
-                    _backdate(db, cid, random.randint(1, 5))
-
-                elif objetivo == "COMPLETE":
-                    for dt in ALL_TYPES:
-                        _add_doc(db, case, user, dt)
-                    _validate_all(db, case, user)
-                    db.refresh(case)
-                    exp_service.marcar_completo(db, case, user)
-                    if random.random() < 0.6:
-                        llm_service.consultar(db, case, "Hay que avisar al SAT?", user)
-                        llm_service.consultar(db, case, "Se puede pagar en efectivo?", user)
-                    _backdate(db, cid, random.randint(8, 40))
-
-                elif objetivo == "INCOMPLETE_EXPIRED":
-                    for dt in ALL_TYPES:
-                        _add_doc(db, case, user, dt)
-                    _validate_all(db, case, user)
-                    db.refresh(case)
-                    _expire_comprobante(db, case, user)
-                    _backdate(db, cid, random.randint(20, 45))
-
-                elif objetivo == "CANCELLED":
-                    if random.random() < 0.5:
-                        _add_doc(db, case, user, DocType.OFFICIAL_ID)
-                    db.refresh(case)
-                    exp_service.cancelar(db, case, "cliente desistio de la compra", user)
-                    _backdate(db, cid, random.randint(10, 30))
-
-                elif objetivo == "ARCHIVED":
-                    for dt in ALL_TYPES:
-                        _add_doc(db, case, user, dt)
-                    _validate_all(db, case, user)
-                    db.refresh(case)
-                    exp_service.marcar_completo(db, case, user)
-                    exp_service.archivar(db, case, user)
-                    _backdate(db, cid, random.randint(30, 60))
-
+                _seed_one(db, user, objetivo, nombre, monto, tipo)
                 total += 1
             print(f"  [{total:02d}] {objetivo:18s} {nombre}")
 
@@ -281,16 +307,7 @@ def seed_demo() -> None:
             )
 
     # Documentos huerfanos (llegaron sin codigo de expediente)
-    huerfanos = [
-        (Channel.WHATSAPP, "+525540001111", "ine_persona_desconocida.jpg", "Hola, les mando mi identificacion"),
-        (Channel.EMAIL, "remitente1@correo.com", "curp_sin_codigo.pdf", "Adjunto mi CURP"),
-        (Channel.WHATSAPP, "+525540002222", "comprobante_domicilio.pdf", "mi comprobante"),
-        (Channel.EMAIL, "remitente2@correo.com", "constancia_fiscal.pdf", "constancia"),
-        (Channel.WHATSAPP, "+525540003333", "documento_borroso_ilegible.jpg", "foto"),
-        (Channel.WHATSAPP, "+525540004444", "ine_cliente.jpg", "aqui esta mi INE"),
-        (Channel.EMAIL, "remitente3@correo.com", "recibo_luz.pdf", "comprobante de domicilio"),
-        (Channel.WHATSAPP, "+525540005555", "documento.pdf", "buenas"),
-    ]
+    huerfanos = HUERFANOS if n_huerfanos is None else HUERFANOS[:n_huerfanos]
     with db_session(user_label="seed") as db:
         for ch, sender, fn, txt in huerfanos:
             orphan_service.crear_huerfano(
@@ -333,6 +350,11 @@ def _reset() -> None:
 if __name__ == "__main__":
     if "--reset" in sys.argv:
         _reset()
-    print("Sembrando datos de demo en Neon...")
-    seed_demo()
+    small = "--small" in sys.argv
+    if small:
+        print("Sembrando set PEQUENO (1-2 por estado) en Neon...")
+        seed_demo(SMALL_PLAN, n_huerfanos=3)
+    else:
+        print("Sembrando datos de demo en Neon...")
+        seed_demo()
     print("\nListo. Explora en http://127.0.0.1:4000/docs (login: admin@centur.com / admin123)")

@@ -14,6 +14,7 @@ import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazar
 import SubirDocumentoModal from "@/components/expediente/modals/SubirDocumentoModal";
 import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpedienteModal";
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
+import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import { CANAL_LABELS, DOC_TIPO_LABELS } from "@/lib/types";
@@ -252,10 +253,16 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar }: {
           </div>
         )}
         {doc.versionAnterior && (
-          <div className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer" style={{ color: "#A86518" }}>
+          <button
+            type="button"
+            onClick={() => { if (doc.versionAnterior?.archivoUrl) window.open(doc.versionAnterior.archivoUrl, "_blank", "noopener,noreferrer"); }}
+            disabled={!doc.versionAnterior.archivoUrl}
+            className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 hover:underline"
+            style={{ color: "#A86518" }}
+          >
             <CornerUpLeft size={10} />
             Ver versión anterior · {new Date(doc.versionAnterior.fechaRecepcion).toLocaleDateString("es-MX")}
-          </div>
+          </button>
         )}
         <div className="flex items-center gap-2 flex-wrap">
           {doc.estado !== "VALIDATED" && (
@@ -284,6 +291,7 @@ type ModalState =
   | { type: "validar-rechazar"; documento: Documento }
   | { type: "subir"; modo: "nuevo" | "reemplazo"; documentoId?: string }
   | { type: "cancelar" }
+  | { type: "editar" }
   | { type: "llm-respuesta"; consulta: ConsultaLLM };
 
 export default function ExpedienteDetallePage() {
@@ -392,6 +400,32 @@ function DetalleContent() {
       setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c) });
       setModal({ type: "none" }); showToast("Documento subido");
     } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
+  }
+
+  async function handleEditarDatos(datos: EditarDatosValues) {
+    if (!detalle) return;
+    setModalLoading(true);
+    const prev = { ...detalle };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos } });
+    try {
+      const actualizado = await expedientesService.actualizarExpediente(id, datos);
+      setDetalle((p) => p ? { ...p, expediente: { ...p.expediente, ...actualizado } } : p);
+      setModal({ type: "none" });
+      showToast("Datos actualizados");
+    } catch {
+      setDetalle(prev);
+      showToast("Error al actualizar los datos");
+    } finally {
+      setModalLoading(false);
+    }
+  }
+
+  async function handleRevertirDoc(docId: string) {
+    if (!detalle) return;
+    const prev = { ...detalle };
+    setDetalle({ ...detalle, documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "RECEIVED", motivoRechazo: undefined } : d), checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" } : c) });
+    setModal({ type: "none" });
+    try { await expedientesService.revertirRechazoDocumento(docId); showToast("Rechazo revertido"); } catch { setDetalle(prev); showToast("Error al revertir el rechazo"); }
   }
 
   async function handleReenviar() {
@@ -529,7 +563,7 @@ function DetalleContent() {
               </div>
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => {}}>Editar datos</ActionBtn>
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
               <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar</ActionBtn>
               {exp.estado === "COMPLETE" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
@@ -873,13 +907,29 @@ function DetalleContent() {
 
       {/* MODALS */}
       {modal.type === "validar-rechazar" && (
-        <ValidarRechazarModal documento={modal.documento} onValidar={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onRechazar={(motivo) => handleRechazarDoc(modal.documento.id, motivo)} onRevertir={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+        <ValidarRechazarModal documento={modal.documento} onValidar={() => { handleValidarDoc(modal.documento.id); setModal({ type: "none" }); }} onRechazar={(motivo) => handleRechazarDoc(modal.documento.id, motivo)} onRevertir={() => handleRevertirDoc(modal.documento.id)} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
       )}
       {modal.type === "subir" && (
         <SubirDocumentoModal modo={modal.modo} documentoId={modal.documentoId} onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
       )}
       {modal.type === "cancelar" && (
         <CancelarExpedienteModal onConfirm={handleCancelar} onClose={() => setModal({ type: "none" })} loading={modalLoading} />
+      )}
+      {modal.type === "editar" && (
+        <EditarDatosModal
+          expediente={{
+            codigo: exp.codigo,
+            clienteNombre: exp.clienteNombre,
+            clienteTelefono: exp.clienteTelefono,
+            clienteCorreo: exp.clienteCorreo,
+            clienteRfc: exp.clienteRfc,
+            montoEstimado: exp.montoEstimado,
+            tipoOperacion: exp.tipoOperacion,
+          }}
+          onConfirm={handleEditarDatos}
+          onClose={() => setModal({ type: "none" })}
+          loading={modalLoading}
+        />
       )}
       {modal.type === "llm-respuesta" && (
         <RespuestaLLMModal consulta={modal.consulta} onClose={() => setModal({ type: "none" })} />

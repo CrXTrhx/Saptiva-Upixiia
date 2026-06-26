@@ -694,8 +694,7 @@ export default function OrphanQueuePage({
         datosExtraidos: documento.datosExtraidos,
       },
     };
-    console.log("Ir a P3 con prefill:", prefillNuevaVenta);
-    // Integración real: el padre (page.tsx) guarda el prefill en memoria y hace
+    // El padre (page.tsx) guarda el prefill en memoria y hace
     // router.push("/nueva-venta"). En standalone, cae al toast simulado.
     if (onCrearExpediente) onCrearExpediente(prefillNuevaVenta);
     else showToast("→ P3: Nueva Venta con datos prellenados desde huérfano");

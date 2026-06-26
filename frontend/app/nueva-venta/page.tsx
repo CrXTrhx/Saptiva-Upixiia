@@ -259,15 +259,8 @@ function NuevaVentaContent() {
     try {
       const exp = await expedientesService.createExpediente(result.data);
       setStatus("success");
-      // Si viene de un documento huérfano, conservar el origen para el historial
-      // de P5 (evento creacion_desde_huerfano). En real lo registra el service.
-      if (documentoOrigen) {
-        console.log("Evento historial:", {
-          tipo: "creacion_desde_huerfano",
-          descripcion: `Expediente creado desde documento huérfano ${documentoOrigen.archivo}`,
-          documentoOrigen,
-        });
-      }
+      // Si viene de un documento huérfano, el backend registra el evento
+      // creacion_desde_huerfano en el historial del expediente.
       router.push(`/expedientes/${exp.id}/instrucciones`);
     } catch (err) {
       setStatus("error");
