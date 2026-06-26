@@ -57,6 +57,7 @@ import type {
   ExpedienteDetalle,
   MotivoRechazo,
   Nota,
+  NextStep,
   PrioridadNextStep,
   Canal,
   TipoOperacion,
@@ -332,6 +333,37 @@ export default function ExpedienteDetallePage() {
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
 
+function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]): NextStep[] {
+  const activeByTipo = new Map(documentos.map((doc) => [doc.tipo, doc]));
+  const steps: NextStep[] = [];
+
+  const addStep = (id: string, texto: string, prioridad: "alta" | "media" | "baja") => {
+    steps.push({ id, texto, prioridad });
+  };
+
+  const csf = activeByTipo.get("CSF");
+  if (csf?.estado === "rechazado") {
+    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "alta");
+  }
+
+  const curp = activeByTipo.get("CURP");
+  if (curp?.estado === "recibido") {
+    addStep("ns-validar-curp", "Validar CURP recibida", "alta");
+  }
+
+  const comprobante = activeByTipo.get("comprobante");
+  if (!comprobante || comprobante.estado === "pendiente") {
+    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "media");
+  }
+
+  const ine = activeByTipo.get("INE");
+  if (ine?.estado === "validado") {
+    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "baja");
+  }
+
+  return steps;
+}
+
 function DetalleContent() {
   const params = useParams();
   const router = useRouter();
@@ -375,7 +407,7 @@ function DetalleContent() {
 
   const checklist = detalle?.checklist ?? [];
   const documentos = detalle?.documentos ?? [];
-  const nextSteps = detalle?.nextSteps ?? [];
+  const nextSteps = deriveNextSteps(checklist, documentos);
   const historial = detalle?.historial ?? [];
   const notas = detalle?.notas ?? [];
   const exp = detalle?.expediente;
