@@ -18,6 +18,34 @@ import EditarDatosModal, { type EditarDatosValues } from "@/components/expedient
 import { Modal } from "@/components/ui/Modal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
+import {
+  DOCUMENTO_REQUERIDO_LABELS,
+  CANAL_LABELS,
+  EVENT_TYPE_LABELS,
+  MOTIVO_RECHAZO_LABELS,
+  ESTADO_LABELS,
+  ESTADO_DOCUMENTO_LABELS,
+  PRIORIDAD_LABELS,
+} from "@/lib/types";
+
+// Las descripciones de los eventos las genera el backend (auditoría) y a veces
+// embeben códigos en inglés (OFFICIAL_ID, WHATSAPP…). Las localizamos en display
+// reemplazando cada código por su etiqueta en español, sin tocar el contrato.
+const CODIGO_A_ETIQUETA: Record<string, string> = {
+  ...DOCUMENTO_REQUERIDO_LABELS,
+  ...CANAL_LABELS,
+  ...ESTADO_LABELS,
+  ...ESTADO_DOCUMENTO_LABELS,
+  ...MOTIVO_RECHAZO_LABELS,
+  ...PRIORIDAD_LABELS,
+};
+const CODIGO_RE = new RegExp(
+  `\\b(${Object.keys(CODIGO_A_ETIQUETA).join("|")})\\b`,
+  "g",
+);
+function localizarDescripcion(texto: string): string {
+  return texto.replace(CODIGO_RE, (m) => CODIGO_A_ETIQUETA[m] ?? m);
+}
 import type {
   ChecklistItem as ChecklistItemType,
   ConsultaLLM,
@@ -29,6 +57,7 @@ import type {
   ExpedienteDetalle,
   MotivoRechazo,
   Nota,
+  NextStep,
   PrioridadNextStep,
   Canal,
   TipoOperacion,
@@ -42,34 +71,34 @@ import type {
 const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 const estadoGlobalConfig: Record<Estado, { label: string; dot: string; bg: string; text: string }> = {
-  en_captura:         { label: "Captura",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
-  en_recepcion:       { label: "Recepción",  dot: "#B58A7A", bg: "#F1E8E3", text: "#6B4E40" },
-  en_validacion:      { label: "Validación", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
-  completo:           { label: "Completo",   dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
-  incompleto_vencido: { label: "Vencido",    dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
-  cancelado:          { label: "Cancelado",  dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
-  archivado:          { label: "Archivado",  dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
+  CAPTURING:          { label: "Captura",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
+  RECEIVING:          { label: "Recepción",  dot: "#B58A7A", bg: "#F1E8E3", text: "#6B4E40" },
+  IN_VALIDATION:      { label: "Validación", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
+  COMPLETE:           { label: "Completo",   dot: "#8FA585", bg: "#ECF0E8", text: "#536648" },
+  INCOMPLETE_EXPIRED: { label: "Vencido",    dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
+  CANCELLED:          { label: "Cancelado",  dot: "#989396", bg: "#EAE7E6", text: "#5C5957" },
+  ARCHIVED:           { label: "Archivado",  dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470" },
 };
 
 const docEstadoConfig: Record<string, { label: string; dot: string; bg: string; text: string; Icon: typeof Check }> = {
-  pendiente:   { label: "Pendiente",   dot: "#989396", bg: "#EAE7E6", text: "#5C5957", Icon: Clock },
-  recibido:    { label: "Recibido",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B", Icon: FileText },
-  validado:    { label: "Validado",    dot: "#8FA585", bg: "#ECF0E8", text: "#536648", Icon: Check },
-  rechazado:   { label: "Rechazado",   dot: "#D88A6A", bg: "#F6E6DF", text: "#9C4B2E", Icon: X },
-  vencido:     { label: "Vencido",     dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435", Icon: AlertTriangle },
-  reemplazado: { label: "Reemplazado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470", Icon: RefreshCw },
+  PENDING:   { label: "Pendiente",   dot: "#989396", bg: "#EAE7E6", text: "#5C5957", Icon: Clock },
+  RECEIVED:  { label: "Recibido",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B", Icon: FileText },
+  VALIDATED: { label: "Validado",    dot: "#8FA585", bg: "#ECF0E8", text: "#536648", Icon: Check },
+  REJECTED:  { label: "Rechazado",   dot: "#D88A6A", bg: "#F6E6DF", text: "#9C4B2E", Icon: X },
+  EXPIRED:   { label: "Vencido",     dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435", Icon: AlertTriangle },
+  REPLACED:  { label: "Reemplazado", dot: "#B5AFA9", bg: "#EFECE9", text: "#7A7470", Icon: RefreshCw },
 };
 
 const prioridadConfig: Record<PrioridadNextStep, { label: string; dot: string; bg: string; text: string }> = {
-  alta:  { label: "Alta",  dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
-  media: { label: "Media", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
-  baja:  { label: "Baja",  dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
+  HIGH:   { label: "Alta",  dot: "#F19B42", bg: "#FCEEDB", text: "#A86518" },
+  MEDIUM: { label: "Media", dot: "#C9A85C", bg: "#F6EFDD", text: "#7A6435" },
+  LOW:    { label: "Baja",  dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B" },
 };
 
 const canalConfig: Record<Canal, { Icon: typeof Mail; color: string }> = {
-  whatsapp: { Icon: MessageSquare, color: "#536648" },
-  correo:   { Icon: Mail,          color: "#4F5A6B" },
-  upload:   { Icon: Upload,        color: "#A86518" },
+  WHATSAPP:      { Icon: MessageSquare, color: "#536648" },
+  EMAIL:         { Icon: Mail,          color: "#4F5A6B" },
+  DIRECT_UPLOAD: { Icon: Upload,        color: "#A86518" },
 };
 
 const tonoColor: Record<TonoEvento, string> = {
@@ -162,7 +191,7 @@ function FauxPdfPage({ tipo }: { tipo: string }) {
         <div className="h-1 flex-1 rounded" style={{ backgroundColor: "#E5DED6" }} />
       </div>
       <div className="h-2 rounded mb-3" style={{ backgroundColor: "#302F2D", width: "60%" }} />
-      {tipo === "INE" && (
+      {tipo === "OFFICIAL_ID" && (
         <div className="flex gap-2 mb-2">
           <div className="w-10 h-12 rounded" style={{ backgroundColor: "#EBEEF2" }} />
           <div className="flex-1 space-y-1.5">
@@ -218,7 +247,7 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
 function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
   doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
 }) {
-  const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.pendiente;
+  const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.PENDING;
   const ccfg = canalConfig[doc.canal];
   const CanalIcon = ccfg?.Icon ?? Upload;
 
@@ -227,12 +256,12 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
       <DocPreview doc={doc} onOpen={onOpen} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{doc.tipo}</span>
+          <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo}</span>
           <Badge cfg={dcfg} small />
           {ccfg && (
             <span className="ml-auto flex items-center gap-1 text-[10px]" style={{ color: "#989396" }}>
               <CanalIcon size={11} style={{ color: ccfg.color }} />
-              {doc.canal}
+              {CANAL_LABELS[doc.canal] ?? doc.canal}
             </span>
           )}
         </div>
@@ -263,7 +292,7 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
           </div>
         )}
         <div className="flex items-center gap-2 flex-wrap">
-          {doc.estado !== "validado" && (
+          {doc.estado !== "VALIDATED" && (
             <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
               <Check size={11} strokeWidth={2.25} /> Validar
             </button>
@@ -303,6 +332,37 @@ export default function ExpedienteDetallePage() {
 // ═══════════════════════════════════════════
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
+
+function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]): NextStep[] {
+  const activeByTipo = new Map(documentos.map((doc) => [doc.tipo, doc]));
+  const steps: NextStep[] = [];
+
+  const addStep = (id: string, texto: string, prioridad: "alta" | "media" | "baja") => {
+    steps.push({ id, texto, prioridad });
+  };
+
+  const csf = activeByTipo.get("CSF");
+  if (csf?.estado === "rechazado") {
+    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "alta");
+  }
+
+  const curp = activeByTipo.get("CURP");
+  if (curp?.estado === "recibido") {
+    addStep("ns-validar-curp", "Validar CURP recibida", "alta");
+  }
+
+  const comprobante = activeByTipo.get("comprobante");
+  if (!comprobante || comprobante.estado === "pendiente") {
+    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "media");
+  }
+
+  const ine = activeByTipo.get("INE");
+  if (ine?.estado === "validado") {
+    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "baja");
+  }
+
+  return steps;
+}
 
 function DetalleContent() {
   const params = useParams();
@@ -347,13 +407,13 @@ function DetalleContent() {
 
   const checklist = detalle?.checklist ?? [];
   const documentos = detalle?.documentos ?? [];
-  const nextSteps = detalle?.nextSteps ?? [];
+  const nextSteps = deriveNextSteps(checklist, documentos);
   const historial = detalle?.historial ?? [];
   const notas = detalle?.notas ?? [];
   const exp = detalle?.expediente;
 
-  const activeDocumentos = useMemo(() => documentos.filter((d) => d.estado !== "reemplazado"), [documentos]);
-  const checklistCompleto = useMemo(() => checklist.length === 4 && checklist.every((c) => c.estado === "validado"), [checklist]);
+  const activeDocumentos = useMemo(() => documentos.filter((d) => d.estado !== "REPLACED"), [documentos]);
+  const checklistCompleto = useMemo(() => checklist.length === 4 && checklist.every((c) => c.estado === "VALIDATED"), [checklist]);
   const detalleDoc = useMemo(() => {
     if (!detalleAbiertoTipo) return null;
     return activeDocumentos.find((d) => d.tipo === detalleAbiertoTipo) ?? null;
@@ -362,7 +422,7 @@ function DetalleContent() {
   function handleSelectChecklistTipo(tipo: DocumentoRequerido) {
     const item = checklist.find((c) => c.tipo === tipo);
     if (!item?.documentoId) {
-      showToast(`Aún no se recibe el documento ${tipo}`);
+      showToast(`Aún no se recibe el documento ${DOCUMENTO_REQUERIDO_LABELS[tipo] ?? tipo}`);
       return;
     }
     setDetalleAbiertoTipo(detalleAbiertoTipo === tipo ? null : tipo);
@@ -372,11 +432,11 @@ function DetalleContent() {
     if (!detalle) return;
     const prev = { ...detalle };
     const doc = detalle.documentos.find((d) => d.id === docId);
-    const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "documento_validado", descripcion: `Documento ${doc?.tipo ?? ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
+    const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "DOCUMENT_VALIDATED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
     setDetalle({
       ...detalle,
-      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "validado", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
-      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "validado" } : c),
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "VALIDATED", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "VALIDATED" } : c),
       historial: [ev, ...detalle.historial],
     });
     try { await expedientesService.validarDocumento(docId); showToast("Documento validado"); } catch { setDetalle(prev); showToast("Error al validar documento"); }
@@ -386,11 +446,11 @@ function DetalleContent() {
     if (!detalle) return;
     const prev = { ...detalle };
     const doc = detalle.documentos.find((d) => d.id === docId);
-    const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "documento_rechazado", descripcion: `Documento ${doc?.tipo ?? ""} rechazado. Motivo: ${motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
+    const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "DOCUMENT_REJECTED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} rechazado. Motivo: ${MOTIVO_RECHAZO_LABELS[motivo.categoria] ?? motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
     setDetalle({
       ...detalle,
-      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "rechazado", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
-      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "rechazado" } : c),
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REJECTED", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "REJECTED" } : c),
       historial: [ev, ...detalle.historial],
     });
     setModal({ type: "none" });
@@ -401,11 +461,11 @@ function DetalleContent() {
   function handleRevertirAuto(docId: string) {
     if (!detalle) return;
     const doc = detalle.documentos.find((d) => d.id === docId);
-    const ev: Evento = { id: "ev-rev-" + Date.now(), tipo: "reversion_rechazo_automatico", descripcion: `Rechazo automático revertido en ${doc?.tipo ?? "documento"}`, timestamp: new Date().toISOString(), tono: "neutral" };
+    const ev: Evento = { id: "ev-rev-" + Date.now(), tipo: "AUTO_REJECT_REVERTED", descripcion: `Rechazo automático revertido en ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : "documento"}`, timestamp: new Date().toISOString(), tono: "neutral" };
     setDetalle({
       ...detalle,
-      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "recibido", rechazoAutomatico: false, motivoRechazo: undefined } : d),
-      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" } : c),
+      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "RECEIVED", rechazoAutomatico: false, motivoRechazo: undefined } : d),
+      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" } : c),
       historial: [ev, ...detalle.historial],
     });
     showToast("Rechazo automático revertido");
@@ -417,8 +477,8 @@ function DetalleContent() {
     const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
     try {
       const newDoc = await expedientesService.reemplazarDocumento(docId, archivo);
-      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "documento_reemplazado", descripcion: `Documento ${tipoDoc ?? ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "reemplazado" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
+      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento reemplazado");
     } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
   }
@@ -428,8 +488,8 @@ function DetalleContent() {
     setModalLoading(true);
     try {
       const newDoc = await expedientesService.subirDocumentoManual(id, tipo, archivo);
-      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "documento_subido_manual", descripcion: `Documento ${tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "pendiente" ? { ...c, estado: "recibido" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
+      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "DOCUMENT_RECEIVED", descripcion: `Documento ${DOCUMENTO_REQUERIDO_LABELS[tipo] ?? tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
+      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
       setModal({ type: "none" }); showToast("Documento subido");
     } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
   }
@@ -438,7 +498,7 @@ function DetalleContent() {
     if (!detalle) return;
     setModalLoading(true);
     const prev = { ...detalle };
-    const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "datos_actualizados", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
+    const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "CASE_UPDATED", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
     setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos }, historial: [ev, ...detalle.historial] });
     try {
       await expedientesService.actualizarExpediente(id, datos);
@@ -460,8 +520,8 @@ function DetalleContent() {
   async function handleCancelar(motivo: string) {
     if (!detalle) return;
     const prev = { ...detalle };
-    const ev: Evento = { id: "ev-canc-" + Date.now(), tipo: "expediente_cancelado", descripcion: `Expediente cancelado. Motivo: ${motivo}`, timestamp: new Date().toISOString(), tono: "warn" };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "cancelado" }, historial: [ev, ...detalle.historial] });
+    const ev: Evento = { id: "ev-canc-" + Date.now(), tipo: "CASE_CANCELLED", descripcion: `Expediente cancelado. Motivo: ${motivo}`, timestamp: new Date().toISOString(), tono: "warn" };
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "CANCELLED" }, historial: [ev, ...detalle.historial] });
     setModal({ type: "none" });
     try { await expedientesService.cancelarExpediente(id, motivo); showToast("Expediente cancelado"); } catch { setDetalle(prev); showToast("Error al cancelar expediente"); }
   }
@@ -469,14 +529,14 @@ function DetalleContent() {
   async function handleMarcarCompleto() {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "completo" } });
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "COMPLETE" } });
     try { await expedientesService.marcarCompleto(id); showToast("Expediente marcado como completo"); } catch { setDetalle(prev); showToast("Error al marcar como completo"); }
   }
 
   async function handleArchivar() {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "archivado" } });
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "ARCHIVED" } });
     try { await expedientesService.archivar(id); showToast("Expediente archivado"); } catch { setDetalle(prev); showToast("Error al archivar expediente"); }
   }
 
@@ -501,7 +561,7 @@ function DetalleContent() {
       const consulta = await expedientesService.consultarLLM(id, pregunta);
       setModal({ type: "llm-respuesta", consulta });
       if (detalle) {
-        const ev: Evento = { id: "ev-llm-" + Date.now(), tipo: "consulta_llm", descripcion: `Consulta LLM: "${pregunta}" → ${consulta.respuesta === "si" ? "Sí" : "No"}`, timestamp: new Date().toISOString(), tono: "accent" };
+        const ev: Evento = { id: "ev-llm-" + Date.now(), tipo: "LLM_QUERY", descripcion: `Consulta LLM: "${pregunta}" → ${consulta.respuesta === "si" ? "Sí" : "No"}`, timestamp: new Date().toISOString(), tono: "accent" };
         setDetalle({ ...detalle, historial: [ev, ...detalle.historial] });
       }
     } catch { showToast("Error en la consulta LLM"); } finally { setLlmLoading(false); }
@@ -521,7 +581,7 @@ function DetalleContent() {
     return <div className="flex min-h-screen flex-col items-center justify-center gap-4"><p className="text-base font-medium" style={{ color: "#302F2D" }}>Error al cargar el expediente</p><button onClick={() => window.location.reload()} className="text-sm cursor-pointer hover:underline" style={{ color: "#F19B42" }}>Reintentar</button></div>;
   }
 
-  const validadosCount = checklist.filter((c) => c.estado === "validado").length;
+  const validadosCount = checklist.filter((c) => c.estado === "VALIDATED").length;
   const estadoCfg = estadoGlobalConfig[exp.estado];
 
   // ═══════════════════════════════════════
@@ -590,10 +650,10 @@ function DetalleContent() {
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
-              {exp.estado !== "cancelado" && exp.estado !== "archivado" && (
+              {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
-              {exp.estado === "completo" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
+              {exp.estado === "COMPLETE" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
             </div>
           </div>
         </Card>
@@ -606,7 +666,7 @@ function DetalleContent() {
             <SectionTitle icon={Check}>Checklist de documentos</SectionTitle>
             <div className="space-y-2.5">
               {checklist.map((item) => {
-                const cfg = docEstadoConfig[item.estado] ?? docEstadoConfig.pendiente;
+                const cfg = docEstadoConfig[item.estado] ?? docEstadoConfig.PENDING;
                 const CfgIcon = cfg.Icon;
                 const isActive = detalleAbiertoTipo === item.tipo;
                 const hasDoc = !!item.documentoId;
@@ -625,7 +685,7 @@ function DetalleContent() {
                       <div className="flex items-center justify-center w-6 h-6 rounded-md" style={{ backgroundColor: cfg.bg }}>
                         <CfgIcon size={12} strokeWidth={2} style={{ color: cfg.text }} />
                       </div>
-                      <span className="text-[13px] font-medium" style={{ color: "#302F2D" }}>{item.tipo}</span>
+                      <span className="text-[13px] font-medium" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[item.tipo] ?? item.tipo}</span>
                       {!hasDoc && <span className="text-[10px]" style={{ color: "#B5AFA9" }}>(no recibido)</span>}
                     </div>
                     <div className="flex items-center gap-2">
@@ -692,7 +752,7 @@ function DetalleContent() {
                     </button>
                   }
                 >
-                  Detalle: {detalleDoc.tipo}
+                  Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
                 <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
               </Card>
@@ -815,7 +875,7 @@ function DetalleContent() {
         {/* 6. BLOQUE H — VALIDACIÓN FINAL */}
         <Card className="p-6" hover={false} delay={0.24}>
           <SectionTitle icon={Check}>Validación final</SectionTitle>
-          {exp.estado === "completo" ? (
+          {exp.estado === "COMPLETE" ? (
             <div className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap" style={{ backgroundColor: "#ECF0E8" }}>
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-9 w-9 rounded-full" style={{ backgroundColor: "#536648" }}>
@@ -915,12 +975,12 @@ function DetalleContent() {
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[12px] font-medium" style={{ color: "#302F2D" }}>{ev.tipo}</span>
+                            <span className="text-[12px] font-medium" style={{ color: "#302F2D" }}>{EVENT_TYPE_LABELS[ev.tipo] ?? ev.tipo}</span>
                             <span className="text-[10px] tabular-nums" style={{ color: "#B5AFA9" }}>
                               {new Date(ev.timestamp).toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit" })} {new Date(ev.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
-                          <p className="text-[11px] leading-relaxed" style={{ color: "#5C5957" }}>{ev.descripcion}</p>
+                          <p className="text-[11px] leading-relaxed" style={{ color: "#5C5957" }}>{localizarDescripcion(ev.descripcion)}</p>
                         </div>
                       </motion.div>
                     ))}
@@ -937,7 +997,7 @@ function DetalleContent() {
         <Modal open={!!previewDoc} onClose={handleClosePreview} title={`Previsualizar ${previewDoc.filename}`} maxWidth="max-w-4xl">
           <div className="space-y-4">
             <div className="text-sm text-[var(--color-text)]" style={{ color: "#5C5957" }}>
-              {previewDoc.tipo} • {previewDoc.canal.toUpperCase()} • {new Date(previewDoc.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+              {DOCUMENTO_REQUERIDO_LABELS[previewDoc.tipo] ?? previewDoc.tipo} • {CANAL_LABELS[previewDoc.canal] ?? previewDoc.canal} • {new Date(previewDoc.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
             </div>
             {previewDoc.archivoUrl ? (
               previewDoc.mimeType.startsWith("image/") ? (

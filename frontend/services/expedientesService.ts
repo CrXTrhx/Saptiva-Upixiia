@@ -1,3 +1,4 @@
+import { apiClient, apiUpload } from "@/lib/apiClient";
 import type {
   ClienteAgrupado,
   ConteoEstados,
@@ -6,33 +7,29 @@ import type {
   Expediente,
   ExpedienteQuery,
   Estado,
-  RangoFecha,
   ExpedienteDetalle,
   Documento,
-  ChecklistItem,
-  NextStep,
-  Evento,
   Nota,
   ConsultaLLM,
   MotivoRechazo,
   DocumentoRequerido,
-  EstadoDocumento,
-  Canal,
   TipoOperacion,
 } from "@/lib/types";
 
 // --- Priority sort (business rule: urgents first, then validation, then missing docs, then rest) ---
+// El backend ya ordena la lista por prioridad; estos helpers se reutilizan para la
+// vista "Por cliente", que se agrupa en el cliente porque el backend no la expone.
 
 const INACTIVIDAD_MS = 3 * 24 * 60 * 60 * 1000;
 
 const ESTADO_PRIORIDAD: Record<Estado, number> = {
-  incompleto_vencido: 0,
-  en_validacion: 1,
-  en_recepcion: 2,
-  en_captura: 3,
-  completo: 4,
-  cancelado: 5,
-  archivado: 5,
+  INCOMPLETE_EXPIRED: 0,
+  IN_VALIDATION: 1,
+  RECEIVING: 2,
+  CAPTURING: 3,
+  COMPLETE: 4,
+  CANCELLED: 5,
+  ARCHIVED: 5,
 };
 
 function calcularPrioridad(exp: Expediente): number {
@@ -42,10 +39,10 @@ function calcularPrioridad(exp: Expediente): number {
   // Inactivos >3 days get bumped to urgent tier — but only for active states, not terminal ones
   if (
     inactivo &&
-    exp.estado !== "cancelado" &&
-    exp.estado !== "archivado" &&
-    exp.estado !== "completo" &&
-    exp.estado !== "incompleto_vencido"
+    exp.estado !== "CANCELLED" &&
+    exp.estado !== "ARCHIVED" &&
+    exp.estado !== "COMPLETE" &&
+    exp.estado !== "INCOMPLETE_EXPIRED"
   )
     return 0;
   return ESTADO_PRIORIDAD[exp.estado];
@@ -62,235 +59,62 @@ function ordenarPorPrioridad(expedientes: Expediente[]): Expediente[] {
   });
 }
 
-// --- Filtering ---
+// --- Query string para el listado del backend ---
 
-function matchesSearch(exp: Expediente, search: string): boolean {
-  const q = search.toLowerCase();
-  return (
-    exp.codigo.toLowerCase().includes(q) ||
-    exp.clienteNombre.toLowerCase().includes(q) ||
-    (exp.clienteRfc?.toLowerCase().includes(q) ?? false) ||
-    exp.clienteTelefono.includes(q) ||
-    exp.clienteCorreo.toLowerCase().includes(q) ||
-    exp.tipoOperacion.toLowerCase().includes(q)
-  );
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function matchesRangoFecha(fecha: string, rango: RangoFecha): boolean {
-  const d = new Date(fecha);
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+function buildQueryString(query: ExpedienteQuery): string {
+  const params = new URLSearchParams();
+  if (query.search?.trim()) params.set("search", query.search.trim());
+  if (query.estado) params.set("estado", query.estado);
+  if (query.documentoFaltante)
+    params.set("doc_faltante", query.documentoFaltante);
 
-  if ("preset" in rango) {
-    switch (rango.preset) {
-      case "hoy":
-        return d >= startOfDay;
-      case "7dias":
-        return d >= new Date(startOfDay.getTime() - 6 * 24 * 60 * 60 * 1000);
-      case "30dias":
-        return d >= new Date(startOfDay.getTime() - 29 * 24 * 60 * 60 * 1000);
+  if (query.rangoFecha) {
+    if ("preset" in query.rangoFecha) {
+      const hoy = startOfDay(new Date());
+      let desde = hoy;
+      if (query.rangoFecha.preset === "7dias")
+        desde = new Date(hoy.getTime() - 6 * 24 * 60 * 60 * 1000);
+      else if (query.rangoFecha.preset === "30dias")
+        desde = new Date(hoy.getTime() - 29 * 24 * 60 * 60 * 1000);
+      params.set("desde", desde.toISOString());
+    } else {
+      params.set("desde", new Date(query.rangoFecha.desde).toISOString());
+      params.set("hasta", new Date(query.rangoFecha.hasta).toISOString());
     }
   }
 
-  const desde = new Date(rango.desde);
-  const hasta = new Date(rango.hasta);
-  return d >= desde && d <= hasta;
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
 }
 
-function filtrarExpedientes(
-  expedientes: Expediente[],
-  query: ExpedienteQuery,
-): Expediente[] {
-  let result = expedientes;
-
-  if (query.search?.trim()) {
-    result = result.filter((e) => matchesSearch(e, query.search!.trim()));
-  }
-  if (query.estado) {
-    result = result.filter((e) => e.estado === query.estado);
-  }
-  if (query.rangoFecha) {
-    result = result.filter((e) =>
-      matchesRangoFecha(e.fechaCreacion, query.rangoFecha!),
-    );
-  }
-  if (query.documentoFaltante) {
-    result = result.filter((e) =>
-      e.documentosFaltantes.includes(query.documentoFaltante!),
-    );
-  }
-
-  return result;
-}
-
-// --- Mock data ---
-
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
-}
-
-// Mock con clientes que repiten identidad (mismo teléfono/correo/RFC) para que
-// la vista agrupada "Por cliente" muestre varios expedientes bajo un mismo cliente.
-const MOCK_EXPEDIENTES: Expediente[] = [
-  // --- Sofía Ramírez (3 expedientes) ---
-  { id: "1", codigo: "EXP-2026-00001", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(15), estado: "incompleto_vencido", tipoOperacion: "venta_vehiculo", montoEstimado: 250000, nextStepPrioritario: "Falta CURP", capturista: "Ana López", documentosFaltantes: ["CURP"], ultimaActividad: daysAgo(5) },
-  { id: "2", codigo: "EXP-2026-00011", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(12), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 520000, nextStepPrioritario: "Revisar CSF", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
-  { id: "3", codigo: "EXP-2026-00019", clienteNombre: "Sofía Ramírez", clienteRfc: "RAMS900101ABC", clienteTelefono: "5551234001", clienteCorreo: "sofia@mail.com", fechaCreacion: daysAgo(4), estado: "completo", tipoOperacion: "venta_vehiculo", montoEstimado: 475000, nextStepPrioritario: "Listo para cierre", capturista: "Ana López", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-
-  // --- Fernando Reyes (2 expedientes) ---
-  { id: "4", codigo: "EXP-2026-00006", clienteNombre: "Fernando Reyes", clienteRfc: "REYF870520JKL", clienteTelefono: "5551234006", clienteCorreo: "fernando@mail.com", fechaCreacion: daysAgo(20), estado: "incompleto_vencido", tipoOperacion: "blindaje", montoEstimado: 780000, nextStepPrioritario: "Comprobante vencido", capturista: "Luis Pérez", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(8) },
-  { id: "5", codigo: "EXP-2026-00016", clienteNombre: "Fernando Reyes", clienteRfc: "REYF870520JKL", clienteTelefono: "5551234006", clienteCorreo: "fernando@mail.com", fechaCreacion: daysAgo(6), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 280000, nextStepPrioritario: "Esperando INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(2) },
-
-  // --- Carlos Hernández (2 expedientes) ---
-  { id: "6", codigo: "EXP-2026-00002", clienteNombre: "Carlos Hernández", clienteRfc: "HERC880215DEF", clienteTelefono: "5551234002", clienteCorreo: "carlos@mail.com", fechaCreacion: daysAgo(10), estado: "en_validacion", tipoOperacion: "venta_vehiculo", montoEstimado: 320000, nextStepPrioritario: "Revisar CSF", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(1) },
-  { id: "7", codigo: "EXP-2026-00022", clienteNombre: "Carlos Hernández", clienteRfc: "HERC880215DEF", clienteTelefono: "5551234002", clienteCorreo: "carlos@mail.com", fechaCreacion: daysAgo(3), estado: "en_captura", tipoOperacion: "blindaje", montoEstimado: 200000, nextStepPrioritario: "Completar datos", capturista: "Ana López", documentosFaltantes: ["CSF", "comprobante"], ultimaActividad: daysAgo(1) },
-
-  // --- Diego Sánchez (2 expedientes) ---
-  { id: "8", codigo: "EXP-2026-00004", clienteNombre: "Diego Sánchez", clienteRfc: "SADD950310GHI", clienteTelefono: "5551234004", clienteCorreo: "diego@mail.com", fechaCreacion: daysAgo(7), estado: "en_captura", tipoOperacion: "blindaje", montoEstimado: 640000, nextStepPrioritario: "Completar datos", capturista: "Roberto Díaz", documentosFaltantes: ["CSF", "comprobante"], ultimaActividad: daysAgo(1) },
-  { id: "9", codigo: "EXP-2026-00009", clienteNombre: "Diego Sánchez", clienteRfc: "SADD950310GHI", clienteTelefono: "5551234004", clienteCorreo: "diego@mail.com", fechaCreacion: daysAgo(4), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 310000, nextStepPrioritario: "Esperando CURP y CSF", capturista: "Ana López", documentosFaltantes: ["CURP", "CSF"], ultimaActividad: daysAgo(0) },
-
-  // --- Ricardo Navarro (2 expedientes) ---
-  { id: "10", codigo: "EXP-2026-00008", clienteNombre: "Ricardo Navarro", clienteRfc: "NAVR910715MNO", clienteTelefono: "5551234008", clienteCorreo: "ricardo@mail.com", fechaCreacion: daysAgo(6), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 560000, nextStepPrioritario: "Verificar INE", capturista: "Roberto Díaz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "11", codigo: "EXP-2026-00012", clienteNombre: "Ricardo Navarro", clienteRfc: "NAVR910715MNO", clienteTelefono: "5551234008", clienteCorreo: "ricardo@mail.com", fechaCreacion: daysAgo(18), estado: "incompleto_vencido", tipoOperacion: "venta_vehiculo", montoEstimado: 290000, nextStepPrioritario: "INE rechazada", capturista: "Roberto Díaz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(10) },
-
-  // --- Clientes con un solo expediente ---
-  { id: "12", codigo: "EXP-2026-00003", clienteNombre: "Mariana Torres", clienteTelefono: "5551234003", clienteCorreo: "mariana@mail.com", fechaCreacion: daysAgo(8), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 330000, nextStepPrioritario: "Esperando INE", capturista: "Diana Cruz", documentosFaltantes: ["INE"], ultimaActividad: daysAgo(2) },
-  { id: "13", codigo: "EXP-2026-00005", clienteNombre: "Valeria Gómez", clienteTelefono: "5551234005", clienteCorreo: "valeria@mail.com", fechaCreacion: daysAgo(5), estado: "completo", tipoOperacion: "blindaje", montoEstimado: 690000, nextStepPrioritario: "Listo para cierre", capturista: "Ana López", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "14", codigo: "EXP-2026-00007", clienteNombre: "Laura Mendoza", clienteTelefono: "5551234007", clienteCorreo: "laura@mail.com", fechaCreacion: daysAgo(12), estado: "cancelado", tipoOperacion: "venta_vehiculo", montoEstimado: 220000, nextStepPrioritario: "—", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(12) },
-  { id: "15", codigo: "EXP-2026-00013", clienteNombre: "Isabel Moreno", clienteTelefono: "5551234013", clienteCorreo: "isabel@mail.com", fechaCreacion: daysAgo(2), estado: "en_recepcion", tipoOperacion: "venta_vehiculo", montoEstimado: 410000, nextStepPrioritario: "Esperando comprobante", capturista: "Ana López", documentosFaltantes: ["comprobante"], ultimaActividad: daysAgo(0) },
-  { id: "16", codigo: "EXP-2026-00014", clienteNombre: "Javier Luna", clienteRfc: "LUNJ850612VWX", clienteTelefono: "5551234014", clienteCorreo: "javier@mail.com", fechaCreacion: daysAgo(9), estado: "en_validacion", tipoOperacion: "blindaje", montoEstimado: 850000, nextStepPrioritario: "Validar comprobante", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(4) },
-  { id: "17", codigo: "EXP-2026-00015", clienteNombre: "Carmen Delgado", clienteTelefono: "5551234015", clienteCorreo: "carmen@mail.com", fechaCreacion: daysAgo(1), estado: "en_captura", tipoOperacion: "venta_vehiculo", montoEstimado: 265000, nextStepPrioritario: "Captura en progreso", capturista: "Diana Cruz", documentosFaltantes: [], ultimaActividad: daysAgo(0) },
-  { id: "18", codigo: "EXP-2026-00010", clienteNombre: "Andrés Castillo", clienteRfc: "CASA880930PQR", clienteTelefono: "5551234010", clienteCorreo: "andres@mail.com", fechaCreacion: daysAgo(30), estado: "archivado", tipoOperacion: "blindaje", montoEstimado: 720000, nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(30) },
-  { id: "19", codigo: "EXP-2026-00018", clienteNombre: "Roberto Peña", clienteRfc: "PENR870115BCD", clienteTelefono: "5551234018", clienteCorreo: "robertop@mail.com", fechaCreacion: daysAgo(22), estado: "cancelado", tipoOperacion: "venta_vehiculo", montoEstimado: 240000, nextStepPrioritario: "—", capturista: "Luis Pérez", documentosFaltantes: [], ultimaActividad: daysAgo(20) },
-];
-
-const MOCK_HUERFANOS_PENDIENTES = 12;
-let mockIdCounter = MOCK_EXPEDIENTES.length + 1;
-
-function generateCodigo(): string {
-  const year = new Date().getFullYear();
-  const seq = String(mockIdCounter).padStart(5, "0");
-  return `EXP-${year}-${seq}`;
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-const MOCK_CHECKLIST: ChecklistItem[] = [
-  { tipo: "INE", estado: "validado", documentoId: "doc-1" },
-  { tipo: "CURP", estado: "recibido", documentoId: "doc-2" },
-  { tipo: "CSF", estado: "rechazado", documentoId: "doc-3" },
-  { tipo: "comprobante", estado: "pendiente" },
-];
-
-const MOCK_DOCUMENTOS: Documento[] = [
-  {
-    id: "doc-1", tipo: "INE", estado: "validado", filename: "ine-frente.jpg",
-    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=INE+Frente",
-    mimeType: "image/jpeg", canal: "whatsapp", remitente: "Sofía Ramírez",
-    fechaRecepcion: new Date(Date.now() - 5 * 86400000).toISOString(),
-    datosExtraidos: { "Nombre": "Sofía Ramírez López", "CURP": "RALS900101MDFRPR09", "Vigencia": "2030" },
-  },
-  {
-    id: "doc-2", tipo: "CURP", estado: "recibido", filename: "curp-sofia.pdf",
-    archivoUrl: "/curp-sofia.pdf",
-    mimeType: "application/pdf", canal: "correo", remitente: "sofia@mail.com",
-    fechaRecepcion: new Date(Date.now() - 3 * 86400000).toISOString(),
-    datosExtraidos: { "CURP": "RALS900101MDFRPR09", "Nombre": "Sofía Ramírez López" },
-  },
-  {
-    id: "doc-3", tipo: "CSF", estado: "rechazado", filename: "csf-sofia.pdf",
-    archivoUrl: "/csf-sofia.pdf",
-    mimeType: "application/pdf", canal: "whatsapp", remitente: "Sofía Ramírez",
-    fechaRecepcion: new Date(Date.now() - 2 * 86400000).toISOString(),
-    motivoRechazo: { categoria: "vencido", texto: "La constancia tiene más de 3 meses de antigüedad" },
-    rechazoAutomatico: true,
-  },
-  {
-    id: "doc-4", tipo: "INE", estado: "reemplazado", filename: "ine-vieja.jpg",
-    archivoUrl: "https://placehold.co/400x600/F5F0EA/989396?text=INE+Anterior",
-    mimeType: "image/jpeg", canal: "whatsapp", remitente: "Sofía Ramírez",
-    fechaRecepcion: new Date(Date.now() - 10 * 86400000).toISOString(),
-  },
-];
-
-const MOCK_NEXT_STEPS: NextStep[] = [
-  { id: "ns-1", texto: "Solicitar nueva CSF al cliente (rechazada por vencimiento)", prioridad: "alta" },
-  { id: "ns-2", texto: "Validar CURP recibida", prioridad: "alta" },
-  { id: "ns-3", texto: "Solicitar comprobante de domicilio", prioridad: "media" },
-  { id: "ns-4", texto: "Revisar datos extraídos de INE", prioridad: "baja" },
-];
-
-const MOCK_HISTORIAL: Evento[] = [
-  { id: "ev-1", tipo: "expediente_creado", descripcion: "Expediente creado por Ana López", timestamp: new Date(Date.now() - 15 * 86400000).toISOString(), tono: "accent" },
-  { id: "ev-2", tipo: "instrucciones_enviadas", descripcion: "Instrucciones enviadas al cliente vía WhatsApp", timestamp: new Date(Date.now() - 14 * 86400000).toISOString(), tono: "neutral" },
-  { id: "ev-3", tipo: "documento_recibido", descripcion: "INE recibida vía WhatsApp", timestamp: new Date(Date.now() - 10 * 86400000).toISOString(), tono: "ok" },
-  { id: "ev-4", tipo: "documento_reemplazado", descripcion: "INE reemplazada por nueva versión", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), tono: "neutral" },
-  { id: "ev-5", tipo: "documento_validado", descripcion: "INE validada por Ana López", timestamp: new Date(Date.now() - 5 * 86400000).toISOString(), tono: "ok" },
-  { id: "ev-6", tipo: "documento_recibido", descripcion: "CURP recibida vía correo", timestamp: new Date(Date.now() - 3 * 86400000).toISOString(), tono: "ok" },
-  { id: "ev-7", tipo: "documento_recibido", descripcion: "CSF recibida vía WhatsApp", timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), tono: "ok" },
-  { id: "ev-8", tipo: "documento_rechazado", descripcion: "CSF rechazada automáticamente: constancia vencida", timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), tono: "warn" },
-  { id: "ev-9", tipo: "recordatorio_enviado", descripcion: "Recordatorio enviado al cliente para CSF y comprobante", timestamp: new Date(Date.now() - 1 * 86400000).toISOString(), tono: "neutral" },
-];
-
-const MOCK_NOTAS: Nota[] = [
-  { id: "nota-1", texto: "Cliente contactado por teléfono, enviará CSF actualizada esta semana.", autor: "Ana López", timestamp: new Date(Date.now() - 1 * 86400000).toISOString() },
-  { id: "nota-2", texto: "Verificar con el cliente si el comprobante puede ser estado de cuenta bancario.", autor: "Luis Pérez", timestamp: new Date(Date.now() - 3 * 86400000).toISOString() },
-];
-
-// Swap mock implementations for real API calls via apiClient.
-// The signatures (param/return types) MUST NOT change — only the body.
-//
-// getExpediente    → GET  /api/expedientes/:id → Expediente | null
-// createExpediente → POST /api/expedientes  body: CreateExpedienteRequest
-//   returns: CreateExpedienteResponse (the full Expediente with server-assigned codigo)
-// previewNextCodigo → visual only; real codigo comes from the backend on create
-// getExpedientes   → GET  /api/expedientes?search=X&estado=Y&desde=Z&hasta=W&doc_faltante=INE
-// getConteos       → GET  /api/expedientes/conteos
-// getHuerfanosPendientes → GET /api/huerfanos/count
 export const expedientesService = {
-  // --- MOCK: replace with apiClient.get<Expediente>(`/expedientes/${id}`) ---
   async getExpediente(id: string): Promise<Expediente | null> {
-    await delay(300);
-    return MOCK_EXPEDIENTES.find((e) => e.id === id) ?? null;
+    try {
+      return await apiClient<Expediente>(`/expedientes/${id}`);
+    } catch {
+      return null;
+    }
   },
 
-  // Visual preview only — the real codigo is assigned by the backend on creation.
+  // Vista previa visual del código; el real lo asigna el backend al crear.
   previewNextCodigo(): string {
-    return generateCodigo();
+    const year = new Date().getFullYear();
+    return `EXP-${year}-XXXXX`;
   },
 
   async createExpediente(
     req: CreateExpedienteRequest,
   ): Promise<CreateExpedienteResponse> {
-    // --- MOCK: replace with apiClient.post<CreateExpedienteResponse>("/expedientes", req) ---
-    await delay(800);
-    const now = new Date().toISOString();
-    const exp: Expediente = {
-      id: String(mockIdCounter),
-      codigo: generateCodigo(),
-      clienteNombre: req.clienteNombre,
-      clienteRfc: req.clienteRfc,
-      clienteTelefono: req.clienteTelefono,
-      clienteCorreo: req.clienteCorreo,
-      fechaCreacion: now,
-      estado: "en_captura",
-      tipoOperacion: req.tipoOperacion,
-      montoEstimado: req.montoEstimado,
-      nextStepPrioritario: "Enviar instrucciones al cliente",
-      capturista: "Administrador",
-      documentosFaltantes: ["INE", "CURP", "CSF", "comprobante"],
-      ultimaActividad: now,
-    };
-    mockIdCounter++;
-    MOCK_EXPEDIENTES.push(exp);
-    return exp;
+    return apiClient<CreateExpedienteResponse>("/expedientes", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
   },
 
-  // PATCH /api/expedientes/:id  → actualizar datos del cliente del expediente
   async actualizarExpediente(
     id: string,
     datos: {
@@ -302,35 +126,32 @@ export const expedientesService = {
       tipoOperacion: TipoOperacion;
     },
   ): Promise<Expediente> {
-    // --- MOCK: replace with apiClient.patch<Expediente>(`/expedientes/${id}`, datos) ---
-    await delay(500);
-    const idx = MOCK_EXPEDIENTES.findIndex((e) => e.id === id);
-    if (idx >= 0) {
-      MOCK_EXPEDIENTES[idx] = { ...MOCK_EXPEDIENTES[idx], ...datos };
-      return MOCK_EXPEDIENTES[idx];
-    }
-    return { ...MOCK_EXPEDIENTES[0], ...datos, id };
+    return apiClient<Expediente>(`/expedientes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(datos),
+    });
   },
 
   async getExpedientes(query: ExpedienteQuery = {}): Promise<Expediente[]> {
-    await delay(400);
-    const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
-    return ordenarPorPrioridad(filtered);
+    const data = await apiClient<Expediente[]>(
+      `/expedientes${buildQueryString(query)}`,
+    );
+    return ordenarPorPrioridad(data);
   },
 
-  // --- MOCK: replace with apiClient.get<ClienteAgrupado[]>(`/clientes?${queryString}`) ---
-  // Vista "Por cliente": agrupa los expedientes (ya filtrados por el query) por
+  // Vista "Por cliente": agrupa los expedientes (ya filtrados por el backend) por
   // cliente, ordena cada grupo por prioridad y los clientes por su urgencia máxima.
   async getClientesAgrupados(
     query: ExpedienteQuery = {},
   ): Promise<ClienteAgrupado[]> {
-    await delay(400);
-    const filtered = filtrarExpedientes(MOCK_EXPEDIENTES, query);
+    const filtered = await apiClient<Expediente[]>(
+      `/expedientes${buildQueryString(query)}`,
+    );
 
-    // Agrupar por identidad de cliente (el teléfono es estable en el mock).
+    // Agrupar por identidad de cliente (el teléfono es estable).
     const grupos = new Map<string, Expediente[]>();
     for (const exp of filtered) {
-      const key = exp.clienteTelefono;
+      const key = exp.clienteTelefono || exp.clienteCorreo || exp.id;
       const arr = grupos.get(key);
       if (arr) arr.push(exp);
       else grupos.set(key, [exp]);
@@ -352,7 +173,7 @@ export const expedientesService = {
         telefono: head.clienteTelefono,
         correo: head.clienteCorreo,
         rfc: head.clienteRfc,
-        montoTotal: exps.reduce((sum, e) => sum + e.montoEstimado, 0),
+        montoTotal: exps.reduce((sum, e) => sum + (e.montoEstimado ?? 0), 0),
         totalExpedientes: exps.length,
         conteoPorEstado,
         tieneUrgente: exps.some((e) => calcularPrioridad(e) === 0),
@@ -360,8 +181,6 @@ export const expedientesService = {
       });
     }
 
-    // Ordenar clientes por la prioridad más alta de sus expedientes (urgentes
-    // primero); a igual prioridad, mayor monto total primero.
     return clientes.sort((a, b) => {
       const pa = Math.min(...a.expedientes.map(calcularPrioridad));
       const pb = Math.min(...b.expedientes.map(calcularPrioridad));
@@ -371,110 +190,99 @@ export const expedientesService = {
   },
 
   async getConteos(): Promise<ConteoEstados> {
-    await delay(200);
-    const conteos: ConteoEstados = {
-      en_captura: 0,
-      en_recepcion: 0,
-      en_validacion: 0,
-      completo: 0,
-      incompleto_vencido: 0,
-      cancelado: 0,
-      archivado: 0,
-    };
-    for (const exp of MOCK_EXPEDIENTES) {
-      conteos[exp.estado]++;
-    }
-    return conteos;
+    return apiClient<ConteoEstados>("/expedientes/conteos");
   },
 
   async getHuerfanosPendientes(): Promise<number> {
-    await delay(100);
-    return MOCK_HUERFANOS_PENDIENTES;
+    const data = await apiClient<{ count: number }>("/huerfanos/count");
+    return data.count;
   },
 
   // --- P5 Detail ---
-  // GET /api/expedientes/:id/detalle
   async getExpedienteDetalle(id: string): Promise<ExpedienteDetalle | null> {
-    await delay(400);
-    const exp = MOCK_EXPEDIENTES.find((e) => e.id === id);
-    if (!exp) return null;
-    return {
-      expediente: { ...exp, montoEstimado: 350000, tipoOperacion: "blindaje" as TipoOperacion },
-      checklist: MOCK_CHECKLIST,
-      documentos: MOCK_DOCUMENTOS,
-      nextSteps: MOCK_NEXT_STEPS,
-      historial: MOCK_HISTORIAL,
-      notas: MOCK_NOTAS,
-    };
+    try {
+      return await apiClient<ExpedienteDetalle>(`/expedientes/${id}/detalle`);
+    } catch {
+      return null;
+    }
   },
 
-  // PATCH /api/documentos/:id/validar
   async validarDocumento(docId: string): Promise<Documento> {
-    await delay(500);
-    return { ...MOCK_DOCUMENTOS.find(d => d.id === docId)!, estado: "validado" };
+    return apiClient<Documento>(`/documentos/${docId}/validar`, {
+      method: "PATCH",
+    });
   },
 
-  // PATCH /api/documentos/:id/rechazar
-  async rechazarDocumento(docId: string, motivo: MotivoRechazo): Promise<Documento> {
-    await delay(500);
-    return { ...MOCK_DOCUMENTOS.find(d => d.id === docId)!, estado: "rechazado", motivoRechazo: motivo };
+  async rechazarDocumento(
+    docId: string,
+    motivo: MotivoRechazo,
+  ): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/rechazar`, {
+      method: "PATCH",
+      body: JSON.stringify({ categoria: motivo.categoria, texto: motivo.texto }),
+    });
   },
 
-  // POST /api/documentos/:id/reemplazar
-  async reemplazarDocumento(docId: string, _archivo: File): Promise<Documento> {
-    await delay(800);
-    const old = MOCK_DOCUMENTOS.find(d => d.id === docId)!;
-    return { ...old, id: "doc-new-" + Date.now(), estado: "recibido", filename: "reemplazo.pdf", fechaRecepcion: new Date().toISOString(), versionAnterior: { ...old, estado: "reemplazado" as EstadoDocumento } };
+  async reemplazarDocumento(docId: string, archivo: File): Promise<Documento> {
+    const form = new FormData();
+    form.append("file", archivo);
+    return apiUpload<Documento>(`/documentos/${docId}/reemplazar`, form, "POST");
   },
 
-  // POST /api/expedientes/:id/documentos
-  async subirDocumentoManual(expedienteId: string, tipo: DocumentoRequerido, _archivo: File): Promise<Documento> {
-    await delay(800);
-    return { id: "doc-manual-" + Date.now(), tipo, estado: "recibido", filename: "documento-manual.pdf", mimeType: "application/pdf", canal: "upload" as Canal, remitente: "Administrador", fechaRecepcion: new Date().toISOString() };
+  async subirDocumentoManual(
+    expedienteId: string,
+    tipo: DocumentoRequerido,
+    archivo: File,
+  ): Promise<Documento> {
+    const form = new FormData();
+    form.append("tipo", tipo);
+    form.append("file", archivo);
+    return apiUpload<Documento>(
+      `/expedientes/${expedienteId}/documentos`,
+      form,
+      "POST",
+    );
   },
 
-  // PATCH /api/expedientes/:id/completar
   async marcarCompleto(id: string): Promise<Expediente> {
-    await delay(500);
-    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
-    return { ...exp, estado: "completo" as Estado };
+    return apiClient<Expediente>(`/expedientes/${id}/completar`, {
+      method: "PATCH",
+    });
   },
 
-  // PATCH /api/expedientes/:id/archivar
   async archivar(id: string): Promise<Expediente> {
-    await delay(500);
-    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
-    return { ...exp, estado: "archivado" as Estado };
+    return apiClient<Expediente>(`/expedientes/${id}/archivar`, {
+      method: "PATCH",
+    });
   },
 
-  // PATCH /api/expedientes/:id/cancelar
-  async cancelarExpediente(id: string, _motivo: string): Promise<Expediente> {
-    await delay(500);
-    const exp = MOCK_EXPEDIENTES.find(e => e.id === id)!;
-    return { ...exp, estado: "cancelado" as Estado };
+  async cancelarExpediente(id: string, motivo: string): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}/cancelar`, {
+      method: "PATCH",
+      body: JSON.stringify({ motivo }),
+    });
   },
 
-  // POST /api/expedientes/:id/reenviar-instrucciones
-  async reenviarInstrucciones(_id: string): Promise<void> {
-    await delay(600);
+  async reenviarInstrucciones(id: string): Promise<void> {
+    await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
+      method: "POST",
+    });
   },
 
-  // POST /api/expedientes/:id/notas
-  async agregarNota(_expedienteId: string, texto: string): Promise<Nota> {
-    await delay(300);
-    return { id: "nota-" + Date.now(), texto, autor: "Administrador", timestamp: new Date().toISOString() };
+  async agregarNota(expedienteId: string, texto: string): Promise<Nota> {
+    return apiClient<Nota>(`/expedientes/${expedienteId}/notas`, {
+      method: "POST",
+      body: JSON.stringify({ texto }),
+    });
   },
 
-  // POST /api/expedientes/:id/consulta-llm
-  async consultarLLM(_expedienteId: string, pregunta: string): Promise<ConsultaLLM> {
-    await delay(1200);
-    const esSAT = pregunta.includes("SAT");
-    return {
-      id: "llm-" + Date.now(),
-      pregunta,
-      respuesta: esSAT ? "si" : "no",
-      razon: esSAT ? "El monto supera el umbral de identificación para blindaje según la LFPIORPI." : "El monto y tipo de operación permiten pago en efectivo sin restricción.",
-      disclaimer: "Respuesta orientativa. Decisión final del Representante de Cumplimiento.",
-    };
+  async consultarLLM(
+    expedienteId: string,
+    pregunta: string,
+  ): Promise<ConsultaLLM> {
+    return apiClient<ConsultaLLM>(`/expedientes/${expedienteId}/consulta-llm`, {
+      method: "POST",
+      body: JSON.stringify({ pregunta }),
+    });
   },
 };

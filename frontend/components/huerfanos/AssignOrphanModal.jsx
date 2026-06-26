@@ -45,18 +45,20 @@ import {
   ArrowRight,
   Check,
 } from "lucide-react";
+import { CANAL_LABELS, DOCUMENTO_REQUERIDO_LABELS } from "@/lib/types";
 
 const EASE_OUT = [0.16, 1, 0.3, 1];
 const ACCENT = "#F19B42";
 const ACCENT_HOVER = "#E08930";
 const SUCCESS = "#10B981";
 
+// Claves = códigos del backend en inglés (CaseStatus); label = español.
 const estadoGlobalConfig = {
-  en_captura: { label: "En captura", dot: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
-  en_recepcion: { label: "En recepción", dot: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
-  en_validacion: { label: "En validación", dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
-  completo: { label: "Completo", dot: "#10B981", bg: "#D1FAE5", text: "#047857" },
-  incompleto_vencido: { label: "Vencido", dot: "#EF4444", bg: "#FEE2E2", text: "#B91C1C" },
+  CAPTURING: { label: "En captura", dot: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
+  RECEIVING: { label: "En recepción", dot: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
+  IN_VALIDATION: { label: "En validación", dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
+  COMPLETE: { label: "Completo", dot: "#10B981", bg: "#D1FAE5", text: "#047857" },
+  INCOMPLETE_EXPIRED: { label: "Vencido", dot: "#EF4444", bg: "#FEE2E2", text: "#B91C1C" },
 };
 
 const matchToneConfig = {
@@ -66,9 +68,31 @@ const matchToneConfig = {
 };
 
 const tipoOperacionLabel = {
-  blindaje: "Blindaje",
-  venta_vehiculo: "Venta de vehículo",
+  ARMORING: "Blindaje",
+  VEHICLE_SALE: "Venta de vehículo",
 };
+
+// Fecha ISO del backend → texto legible en español.
+function fmtFecha(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function tipoLabel(tipo) {
+  return DOCUMENTO_REQUERIDO_LABELS[tipo] ?? (tipo === "UNKNOWN" ? "Desconocido" : tipo);
+}
+
+function canalLabel(canal) {
+  return CANAL_LABELS[canal] ?? canal;
+}
 
 // --- Helpers -----------------------------------------------------------------
 
@@ -322,18 +346,18 @@ function DocumentSummary({ doc, onExpandPreview }) {
       <p className="mt-3 truncate text-center text-[13px] font-semibold" style={{ color: "#111827" }}>
         {doc.archivo || "—"}
       </p>
-      {doc.tipoDetectado && (
+      {doc.tipoDetectado && doc.tipoDetectado !== "UNKNOWN" && (
         <div className="mt-1.5 flex justify-center">
           <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider" style={{ backgroundColor: "#EDE9FE", color: "#6D28D9" }}>
-            {doc.tipoDetectado}
+            {tipoLabel(doc.tipoDetectado)}
           </span>
         </div>
       )}
 
       <div className="mt-4 space-y-2.5">
-        <MetaRow icon={Mail} label="Canal" value={doc.canal} />
+        <MetaRow icon={Mail} label="Canal" value={canalLabel(doc.canal)} />
         <MetaRow icon={User} label="Remitente" value={doc.remitente} />
-        <MetaRow icon={FileText} label="Recibido" value={doc.timestamp} mono />
+        <MetaRow icon={FileText} label="Recibido" value={fmtFecha(doc.timestamp)} mono />
       </div>
 
       {datos && (

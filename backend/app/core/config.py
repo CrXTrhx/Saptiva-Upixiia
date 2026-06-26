@@ -1,0 +1,75 @@
+"""Configuracion central (lee variables de entorno / .env)."""
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    # Base de datos
+    database_url: str = "postgresql://localhost/neondb"
+
+    # Auth
+    jwt_secret: str = "dev-secret-change-me"
+    jwt_expire_minutes: int = 480
+    jwt_algorithm: str = "HS256"
+    admin_email: str = "admin@centur.com"
+    admin_password: str = "admin123"
+    admin_name: str = "Administrador"
+
+    # URL publica del backend (para construir archivoUrl de storage local)
+    api_public_url: str = "http://localhost:4000"
+
+    # CORS
+    cors_origins: str = "http://localhost:3000"
+
+    # Datos del sistema (instrucciones al cliente)
+    system_whatsapp: str = "+52 55 0000 0000"
+    system_email: str = "documentos@centur.com"
+
+    # Storage
+    storage_backend: str = "local"  # local | r2
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket: str = ""
+    r2_public_base_url: str = ""
+
+    # Integraciones
+    document_api_url: str = "https://adjudicator.saptiva.com"
+    document_api_key: str = ""
+    sinch_api_token: str = ""
+    sinch_webhook_secret: str = ""
+    email_webhook_secret: str = ""
+    anthropic_api_key: str = ""
+    llm_use_real: bool = False
+    extraction_confidence_threshold: float = 70.0
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Normaliza el string de Neon al driver psycopg3 (sincrono)."""
+        url = self.database_url
+        if url.startswith("postgresql+"):
+            return url
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+        if url.startswith("postgresql://"):
+            return "postgresql+psycopg://" + url[len("postgresql://") :]
+        return url
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

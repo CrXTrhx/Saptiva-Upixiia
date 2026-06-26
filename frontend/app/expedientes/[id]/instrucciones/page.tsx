@@ -527,7 +527,7 @@ function InstruccionesContent() {
                       value={
                         TIPO_OPERACION_LABELS[
                           (expediente as unknown as { tipoOperacion?: TipoOperacion })
-                            .tipoOperacion ?? "blindaje"
+                            .tipoOperacion ?? "ARMORING"
                         ] ?? "—"
                       }
                     />
