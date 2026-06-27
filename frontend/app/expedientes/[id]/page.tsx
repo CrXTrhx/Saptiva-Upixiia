@@ -327,9 +327,11 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersio
               <Check size={11} strokeWidth={2.25} /> Validar
             </button>
           )}
-          <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
-            <X size={11} /> Rechazar
-          </button>
+          {doc.estado !== "REJECTED" && (
+            <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
+              <X size={11} /> Rechazar
+            </button>
+          )}
           <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
             <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
           </button>
@@ -532,16 +534,19 @@ function DetalleContent() {
 
   async function handleReemplazarDoc(docId: string, archivo: File) {
     if (!detalle) return;
-    setModalLoading(true);
+    // Igual que la subida nueva: cierra la modal de inmediato. El backend deja el
+    // documento entrante en PROCESSING y lo analiza en segundo plano, asi que al
+    // refrescar se ve la tarjeta "en analisis" con su barra; el polling lo actualiza
+    // al terminar.
+    setModal({ type: "none" });
     try {
       await expedientesService.reemplazarDocumento(docId, archivo);
-      // Refresca el estado real desde el backend: el documento entrante puede quedar
-      // recibido o rechazado, y el checklist/estado del expediente se recalculan. Asi
-      // evitamos parches optimistas que dejaban el slot en un estado incorrecto.
       const fresh = await expedientesService.getExpedienteDetalle(id);
       if (fresh) setDetalle(fresh);
-      setModal({ type: "none" }); showToast("Documento reemplazado");
-    } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
+      showToast("Documento reemplazado, analizando…");
+    } catch {
+      showToast("Error al reemplazar documento");
+    }
   }
 
   // Restaura la versión anterior: el doc vigente (docId) pasa a histórico y la

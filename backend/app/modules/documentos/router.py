@@ -95,6 +95,7 @@ def revertir_rechazo(
 @router.post("/documentos/{doc_id}/reemplazar", status_code=201)
 def reemplazar(
     doc_id: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
@@ -107,6 +108,11 @@ def reemplazar(
         file_name=file.filename or "documento",
         mime_type=file.content_type,
         user=user,
+    )
+    db.commit()  # persiste el reemplazo antes de arrancar la tarea en segundo plano
+    background_tasks.add_task(
+        service.process_document,
+        str(nuevo.id), actor=user.email, actor_user_id=user.id,
     )
     return serializers.serialize_documento(db, nuevo)
 
