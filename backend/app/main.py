@@ -36,6 +36,7 @@ def _include_routers() -> None:
     from app.modules.auth.router import router as auth_router
     from app.modules.canales.router import router as canales_router
     from app.modules.catalogos.router import router as catalogos_router
+    from app.modules.dashboard.router import router as dashboard_router
     from app.modules.documentos.router import router as documentos_router
     from app.modules.expedientes.router import router as expedientes_router
     from app.modules.huerfanos.router import router as huerfanos_router
@@ -47,6 +48,7 @@ def _include_routers() -> None:
         huerfanos_router,
         canales_router,
         catalogos_router,
+        dashboard_router,
     ):
         app.include_router(r, prefix="/api")
 

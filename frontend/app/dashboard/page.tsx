@@ -37,12 +37,13 @@ function DashboardContent() {
   const [loadingConteos, setLoadingConteos] = useState(true);
   const [loadingTable, setLoadingTable] = useState(true);
 
+  // Conteos + huérfanos pendientes en UNA sola request (antes eran 2).
   useEffect(() => {
-    expedientesService.getConteos().then((c) => {
-      setConteos(c);
+    expedientesService.getDashboardResumen().then((r) => {
+      setConteos(r.conteos);
+      setHuerfanos(r.huerfanosPendientes);
       setLoadingConteos(false);
     });
-    expedientesService.getHuerfanosPendientes().then(setHuerfanos);
   }, []);
 
   // Un solo fetch de la lista por `query`. La vista "Por cliente" se deriva en memoria
