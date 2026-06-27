@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Centur — Gestión de Expedientes",
-  description: "Sistema de gestión de expedientes Centur Blindajes",
+  title: "DigitalFoldr — Gestión de Expedientes",
+  description: "Sistema de gestión de expedientes DigitalFoldr",
 };
 
 export default function RootLayout({
