@@ -227,8 +227,13 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
       <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider text-white" style={{ backgroundColor: "rgba(48,47,45,0.7)" }}>{ext}</span>
       {isImage && doc.archivoUrl ? (
         <img src={doc.archivoUrl} alt={doc.filename} className="w-full h-full object-cover" />
-      ) : isPdf ? (
-        <FauxPdfPage tipo={doc.tipo} />
+      ) : isPdf && doc.archivoUrl ? (
+        <iframe
+          src={`${doc.archivoUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+          title={doc.filename}
+          className="w-full h-full"
+          style={{ pointerEvents: "none", border: "none" }}
+        />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ backgroundColor: "#FAF6F1" }}>
           <FileText size={28} strokeWidth={1.5} style={{ color: "#B5AFA9" }} />
