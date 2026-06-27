@@ -6,6 +6,7 @@ rechazo, catalogos).
 """
 from __future__ import annotations
 
+import time
 import uuid
 
 import pytest
@@ -65,13 +66,31 @@ def test_editar_expediente(client, auth):
     assert any(e["tipo"] == "CASE_UPDATED" for e in det["historial"])
 
 
+def _esperar_estado_doc(client, auth, exp_id, doc_id, timeout=15.0):
+    """La subida manual deja el doc en PROCESSING y lo analiza en segundo plano.
+    Reconsulta el detalle hasta que el documento sale de PROCESSING."""
+    deadline = time.time() + timeout
+    doc = None
+    while time.time() < deadline:
+        det = client.get(f"/api/expedientes/{exp_id}/detalle", headers=auth).json()
+        doc = next((d for d in det["documentos"] if d["id"] == doc_id), None)
+        if doc and doc["estado"] != "PROCESSING":
+            return doc
+        time.sleep(0.5)
+    return doc
+
+
 def test_rechazo_automatico_y_revertir(client, auth):
     exp = _crear(client, auth)
     files = {"file": ("comprobante_ilegible.jpg", b"x", "image/jpeg")}
     r = client.post(f"/api/expedientes/{exp['id']}/documentos", headers=auth,
                     data={"tipo": "PROOF_OF_ADDRESS"}, files=files)
-    assert r.status_code == 201 and r.json()["estado"] == "REJECTED", r.text
+    assert r.status_code == 201, r.text
     doc_id = r.json()["id"]
+    # El analisis corre en segundo plano: el doc queda en PROCESSING y termina
+    # rechazado por ilegible. Releemos el estado ya resuelto.
+    doc = _esperar_estado_doc(client, auth, exp["id"], doc_id)
+    assert doc and doc["estado"] == "REJECTED", doc
     # revertir el rechazo automatico
     r = client.patch(f"/api/documentos/{doc_id}/revertir-rechazo", headers=auth)
     assert r.status_code == 200 and r.json()["estado"] == "RECEIVED", r.text
@@ -120,6 +139,53 @@ def test_huerfano_y_asignacion(client, auth):
     r = client.post(f"/api/huerfanos/{orphan_id}/asignar", headers=auth,
                     json={"expedienteId": exp["id"], "tipo": "OFFICIAL_ID"})
     assert r.status_code == 201, r.text
+
+
+def _huerfano_whatsapp(client, file_name: str) -> str:
+    """Crea un huerfano por WhatsApp (sin codigo) y devuelve su id."""
+    r = client.post("/api/webhooks/whatsapp", json={
+        "sender": "+525550000000", "text": "sin codigo",
+        "fileName": file_name, "mimeType": "image/jpeg",
+    })
+    assert r.json()["status"] == "orphan", r.text
+    return r.json()["orphanId"]
+
+
+def test_documento_entrante_reemplaza_card_del_mismo_tipo(client, auth):
+    """Al asignar un 2o documento del mismo tipo, el entrante se vuelve la UNICA
+    card activa y el anterior (aunque este validado) pasa al historico como
+    versionAnterior. Cubre el caso del huerfano que antes dejaba 2 cards (p. ej.
+    2 INEs) cuando el entrante se auto-rechazaba."""
+    exp = _crear(client, auth, nombre="Reemplazo Card")
+    eid = exp["id"]
+    suf = uuid.uuid4().hex[:6]
+
+    # 1a INE: huerfano -> asignar (RECEIVED) -> validar (VALIDATED)
+    o1 = _huerfano_whatsapp(client, f"ine_buena_{suf}.jpg")
+    r = client.post(f"/api/huerfanos/{o1}/asignar", headers=auth,
+                    json={"expedienteId": eid, "tipo": "OFFICIAL_ID"})
+    assert r.status_code == 201 and r.json()["estado"] == "RECEIVED", r.text
+    doc1 = r.json()["id"]
+    rv = client.patch(f"/api/documentos/{doc1}/validar", headers=auth)
+    assert rv.status_code == 200 and rv.json()["estado"] == "VALIDATED", rv.text
+
+    # 2a INE: llega ilegible (se auto-rechaza) y se asigna al MISMO expediente
+    o2 = _huerfano_whatsapp(client, f"ine_ilegible_{suf}.jpg")
+    r = client.post(f"/api/huerfanos/{o2}/asignar", headers=auth,
+                    json={"expedienteId": eid, "tipo": "OFFICIAL_ID"})
+    assert r.status_code == 201 and r.json()["estado"] == "REJECTED", r.text
+    doc2 = r.json()["id"]
+
+    # Una sola card activa de OFFICIAL_ID; la previa validada quedo en el rastro.
+    det = client.get(f"/api/expedientes/{eid}/detalle", headers=auth).json()
+    ine_cards = [d for d in det["documentos"] if d["tipo"] == "OFFICIAL_ID"]
+    assert len(ine_cards) == 1, [d["id"] for d in ine_cards]
+    card = ine_cards[0]
+    assert card["id"] == doc2, "el documento entrante debe ser la card activa"
+    assert card["versionAnterior"] and card["versionAnterior"]["id"] == doc1, \
+        "la version validada anterior debe quedar como versionAnterior"
+    item = next(c for c in det["checklist"] if c["tipo"] == "OFFICIAL_ID")
+    assert item["documentoId"] == doc2, "el checklist debe apuntar al documento activo"
 
 
 def test_cancelar_con_motivo(client, auth):
