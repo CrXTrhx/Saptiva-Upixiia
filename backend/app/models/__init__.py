@@ -95,6 +95,9 @@ class Document(Base):
     rejection_note: Mapped[str | None] = mapped_column(Text)
     is_auto_rejected: Mapped[int] = mapped_column(SmallInteger, default=0)
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document.id"))
+    # Momento en que el cron borro el archivo de R2 (versiones reemplazadas viejas).
+    # La fila se conserva como auditoria; si no es None, file_url ya no existe en R2.
+    file_purged_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     reception_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
     validated_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     validated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

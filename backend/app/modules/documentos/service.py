@@ -66,7 +66,9 @@ def ingest_document(
     actor_user_id: uuid.UUID | None = None,
 ) -> Document:
     """Almacena el archivo, crea el Documento y corre el pipeline."""
-    stored = storage.store(content, file_name, mime_type)
+    stored = storage.store(
+        content, file_name, mime_type, prefix=case.code, doc_type=declared_type
+    )
     doc = Document(
         case_file_id=case.id,
         declared_type_code=declared_type,
@@ -111,7 +113,9 @@ def create_processing_document(
     El analisis (Document AI) lo corre `process_document` en segundo plano. Guardar
     el documento de inmediato lo hace visible aunque el usuario recargue la pagina.
     """
-    stored = storage.store(content, file_name, mime_type)
+    stored = storage.store(
+        content, file_name, mime_type, prefix=case.code, doc_type=declared_type
+    )
     doc = Document(
         case_file_id=case.id,
         declared_type_code=declared_type,
