@@ -262,33 +262,28 @@ CREATE TABLE app_user (
 CREATE UNIQUE INDEX ux_app_user_email_active ON app_user (lower(email)) WHERE active_flag = 1;
 
 -- =============================================================================
--- 4. SECUENCIA DE CODIGO DE EXPEDIENTE (EXP-YYYY-NNNNN, contador por anio)
+-- 4. SECUENCIA DE CODIGO DE EXPEDIENTE
+--    Formato: EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}
+--    Ej: EXP-2026-BLN00001-K7MQ. El contador NNNNN reinicia por (anio, tipo de
+--    operacion). XXXX son 4 caracteres aleatorios de un alfabeto sin caracteres
+--    confusos (sin 0/O, 1/I/L): hacen el codigo dificil de adivinar y resistente a
+--    errores de tecleo (un codigo mal escrito casi nunca coincide con otro real, asi
+--    cae a huerfanos en vez de asignarse al expediente equivocado). El codigo lo arma
+--    el trigger fn_case_set_code (mas abajo).
 -- =============================================================================
 CREATE TABLE case_code_sequence (
-    year        int      PRIMARY KEY,
-    last_number int      NOT NULL DEFAULT 0
+    year        int          NOT NULL,
+    op_code     varchar(40)  NOT NULL,
+    last_number int          NOT NULL DEFAULT 0,
+    PRIMARY KEY (year, op_code)
 );
-
-CREATE OR REPLACE FUNCTION fn_next_case_code() RETURNS varchar AS $$
-DECLARE
-    v_year int := EXTRACT(YEAR FROM now())::int;
-    v_num  int;
-BEGIN
-    INSERT INTO case_code_sequence(year, last_number)
-    VALUES (v_year, 1)
-    ON CONFLICT (year) DO UPDATE SET last_number = case_code_sequence.last_number + 1
-    RETURNING last_number INTO v_num;
-
-    RETURN 'EXP-' || v_year || '-' || lpad(v_num::text, 5, '0');
-END;
-$$ LANGUAGE plpgsql;
 
 -- =============================================================================
 -- 5. EXPEDIENTE (modulo core)
 -- =============================================================================
 CREATE TABLE case_file (
     id                  uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
-    code                varchar(20)   NOT NULL,            -- EXP-YYYY-NNNNN (autogenerado)
+    code                varchar(30)   NOT NULL,            -- EXP-AAAA-{BLN|VNT}#####-XXXX (autogenerado)
     -- Datos del cliente
     client_name         varchar(255)  NOT NULL,
     client_phone        varchar(30),
@@ -327,11 +322,36 @@ CREATE INDEX ix_case_email_trgm   ON case_file USING gin (client_email gin_trgm_
 CREATE INDEX ix_case_phone_trgm   ON case_file USING gin (client_phone gin_trgm_ops);
 CREATE INDEX ix_case_code_trgm    ON case_file USING gin (code gin_trgm_ops);
 
--- Trigger: autogenerar code si no viene
+-- Trigger: autogenerar code si no viene.
+-- Formato EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}; el contador reinicia por (anio, tipo de
+-- operacion) y XXXX son 4 caracteres aleatorios sin caracteres confusos.
 CREATE OR REPLACE FUNCTION fn_case_set_code() RETURNS trigger AS $$
+DECLARE
+    v_year   int := EXTRACT(YEAR FROM now())::int;
+    v_op     varchar(3);
+    v_num    int;
+    v_alpha  text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';  -- sin 0,O,1,I,L (faciles de confundir)
+    v_suffix text := '';
+    i        int;
 BEGIN
     IF NEW.code IS NULL OR NEW.code = '' THEN
-        NEW.code := fn_next_case_code();
+        v_op := CASE NEW.operation_type_code
+                    WHEN 'ARMORING'     THEN 'BLN'
+                    WHEN 'VEHICLE_SALE' THEN 'VNT'
+                    ELSE 'GEN'
+                END;
+        INSERT INTO case_code_sequence(year, op_code, last_number)
+        VALUES (v_year, NEW.operation_type_code, 1)
+        ON CONFLICT (year, op_code)
+            DO UPDATE SET last_number = case_code_sequence.last_number + 1
+        RETURNING last_number INTO v_num;
+
+        -- 4 caracteres aleatorios (clave anti-confusion / anti-typo)
+        FOR i IN 1..4 LOOP
+            v_suffix := v_suffix || substr(v_alpha, floor(random() * length(v_alpha))::int + 1, 1);
+        END LOOP;
+
+        NEW.code := 'EXP-' || v_year || '-' || v_op || lpad(v_num::text, 5, '0') || '-' || v_suffix;
     END IF;
     RETURN NEW;
 END;
