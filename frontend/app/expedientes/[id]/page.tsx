@@ -412,18 +412,22 @@ function DetalleContent() {
       .catch(() => setDataStatus("error"));
   }, [id]);
 
-  // Mientras haya documentos en analisis (PROCESSING), refresca el detalle cada pocos
-  // segundos para reflejar el resultado (datos extraidos, estado, historial). Como el
-  // estado vive en el backend, esto sigue funcionando aunque se recargue la pagina.
+  // Refresca el detalle periodicamente para reflejar cambios que ocurren fuera de esta
+  // pantalla SIN tener que recargar: documentos que llegan por correo, resultados del
+  // analisis (datos extraidos, estado, historial), etc. Si hay documentos en analisis
+  // (PROCESSING) sondea mas seguido; en reposo mantiene un sondeo base para que las
+  // cards aparezcan solas cuando entra un documento por otro canal. El estado vive en el
+  // backend, asi que esto sigue funcionando aunque se recargue la pagina.
   const hayProcesando = (detalle?.documentos ?? []).some((d) => d.estado === "PROCESSING");
   useEffect(() => {
-    if (!hayProcesando) return;
+    if (dataStatus !== "loaded") return;
+    const intervalo = hayProcesando ? 2500 : 5000;
     const t = setInterval(async () => {
       const fresh = await expedientesService.getExpedienteDetalle(id);
       if (fresh) setDetalle(fresh);
-    }, 2500);
+    }, intervalo);
     return () => clearInterval(t);
-  }, [hayProcesando, id]);
+  }, [hayProcesando, id, dataStatus]);
 
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
