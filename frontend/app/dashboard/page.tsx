@@ -10,6 +10,7 @@ import { TablaExpedientes } from "@/components/dashboard/TablaExpedientes";
 import { TablaClientes } from "@/components/dashboard/TablaClientes";
 import { VistaToggle, type VistaDashboard } from "@/components/dashboard/VistaToggle";
 import ClienteDetalle from "@/components/dashboard/ClienteDetalle";
+import { setNuevaVentaPrefill } from "@/lib/nueva-venta-handoff";
 import { expedientesService, agruparPorCliente } from "@/services/expedientesService";
 import type {
   ClienteAgrupado,
@@ -99,7 +100,19 @@ function DashboardContent() {
         expedientes={selectedCliente.expedientes}
         onBack={handleCloseModal}
         onAbrirExpediente={(exp) => router.push(`/expedientes/${exp.id}`)}
-        onNuevaVenta={() => router.push("/nueva-venta")}
+        onNuevaVenta={(cli) => {
+          setNuevaVentaPrefill({
+            nombreCliente: cli.nombre ?? "",
+            telefono: cli.telefono ?? "",
+            correo: cli.correo ?? "",
+            rfc: cli.rfc ?? "",
+            tipoOperacion: "",
+            montoEstimado: "",
+            returnTo: "back",
+            lockedFields: ["clienteNombre", "clienteRfc"],
+          });
+          router.push("/nueva-venta");
+        }}
       />
     );
   }

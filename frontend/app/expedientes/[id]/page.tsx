@@ -59,6 +59,8 @@ import type {
   MotivoRechazo,
   Nota,
   PrioridadNextStep,
+  ChecklistItem,
+  NextStep,
   Canal,
   TipoOperacion,
   TonoEvento,
@@ -695,7 +697,7 @@ export default function ExpedienteDetallePage() {
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
 
-function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]): NextStep[] {
+function deriveNextSteps(checklist: ChecklistItem[], documentos: Documento[]): NextStep[] {
   const activeByTipo = new Map<DocumentoRequerido, Documento>(documentos.map((doc) => [doc.tipo, doc]));
   const steps: NextStep[] = [];
 
