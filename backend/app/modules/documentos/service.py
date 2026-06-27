@@ -312,11 +312,13 @@ def reemplazar_documento(
     case = db.get(CaseFile, doc.case_file_id)
     declared = doc.declared_type_code or doc.detected_type_code
 
-    nuevo = ingest_document(
+    # Igual que la subida nueva: el documento entrante queda en PROCESSING y se
+    # analiza con Document AI en segundo plano (process_document). Asi el frontend
+    # muestra la animacion de "en analisis" tambien al reemplazar.
+    nuevo = create_processing_document(
         db, case,
         content=content, file_name=file_name, mime_type=mime_type,
         channel=Channel.DIRECT_UPLOAD, sender=user.email, declared_type=declared,
-        actor=user.email, actor_user_id=user.id,
     )
 
     doc.status_code = DocStatus.REPLACED
