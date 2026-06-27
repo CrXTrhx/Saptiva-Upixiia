@@ -162,9 +162,9 @@ def list_expedientes(
     if estado:
         stmt = stmt.where(CaseFile.status_code == estado)
     if desde:
-        stmt = stmt.where(CaseFile.created_at >= desde)
+        stmt = stmt.where(CaseFile.created_at >= dt.datetime.fromisoformat(desde))
     if hasta:
-        stmt = stmt.where(CaseFile.created_at <= hasta)
+        stmt = stmt.where(CaseFile.created_at <= dt.datetime.fromisoformat(hasta))
 
     cases = list(db.execute(stmt).scalars())
 

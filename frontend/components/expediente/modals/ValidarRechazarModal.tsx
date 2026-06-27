@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -143,14 +143,30 @@ export default function ValidarRechazarModal({
   const [rejectComment, setRejectComment] = useState("");
   const [fullPreviewOpen, setFullPreviewOpen] = useState(false);
 
-  // Resetear / sincronizar al cambiar el documento o el modo.
+  // Resetear solo cuando se abre el modal con un documento distinto o un modo
+  // distinto. Usar documento.id en vez de la referencia completa evita que el
+  // polling (que reemplaza el objeto cada 2-5 s) destruya el estado del
+  // formulario de rechazo.
   useEffect(() => {
     setEditedExtractedData(documento.datosExtraidos ?? {});
     setIsRejecting(mode === "reject");
     setRejectReason("");
     setRejectComment("");
     setFullPreviewOpen(false);
-  }, [documento, mode]);
+  }, [documento.id, mode]);
+
+  // Si el polling trae datos extraídos nuevos (ej. PROCESSING → RECEIVED),
+  // sincronizar sin tocar el estado del formulario de rechazo. Comparamos por
+  // contenido para no sobreescribir ediciones del usuario con cada poll.
+  const prevDatosRef = useRef(documento.datosExtraidos);
+  useEffect(() => {
+    const prev = JSON.stringify(prevDatosRef.current);
+    const next = JSON.stringify(documento.datosExtraidos);
+    if (prev !== next) {
+      prevDatosRef.current = documento.datosExtraidos;
+      setEditedExtractedData(documento.datosExtraidos ?? {});
+    }
+  }, [documento.datosExtraidos]);
 
   const ecfg = docEstadoConfig[documento.estado] ?? docEstadoConfig.PENDING;
   const esRechazoAutomatico = documento.rechazoAutomatico === true;
@@ -422,15 +438,17 @@ export default function ValidarRechazarModal({
                 >
                   Cerrar
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setIsRejecting(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium transition-colors"
-                  style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}
-                >
-                  <XCircle size={13} />
-                  Rechazar
-                </button>
+                {documento.estado !== "REJECTED" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsRejecting(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium transition-colors"
+                    style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}
+                  >
+                    <XCircle size={13} />
+                    Rechazar
+                  </button>
+                )}
                 <motion.button
                   type="button"
                   onClick={handleValidate}
