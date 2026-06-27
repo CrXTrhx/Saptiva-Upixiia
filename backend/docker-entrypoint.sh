@@ -52,5 +52,7 @@ PY
 echo "[entrypoint] Sembrando usuario admin..."
 python -m app.seed || echo "[entrypoint] seed omitido (admin ya existe)."
 
-echo "[entrypoint] Iniciando API en http://0.0.0.0:4000"
-exec uvicorn app.main:app --host 0.0.0.0 --port 4000
+# Render (y otros PaaS) inyectan el puerto via $PORT; en local cae a 4000.
+APP_PORT="${PORT:-4000}"
+echo "[entrypoint] Iniciando API en http://0.0.0.0:${APP_PORT}"
+exec uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT}"

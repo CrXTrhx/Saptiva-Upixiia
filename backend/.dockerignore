@@ -3,5 +3,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .env
+.env.*
 storage_local/
 *.md
+
+# Secretos: nunca hornear credenciales en la imagen (en Render se inyectan como
+# Secret File / env vars).
+*-service-account.json
+google-credentials.json
+credentials/
+secrets/
