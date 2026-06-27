@@ -145,7 +145,7 @@ def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
         Document.active_flag == 1,
         Document.status_code != DocStatus.REPLACED,
         Document.file_purged_at.is_(None),
-        func.coalesce(Document.detected_type_code, Document.declared_type_code) == doc_type,
+        func.coalesce(Document.declared_type_code, Document.detected_type_code) == doc_type,
     ]
 
     prev_docs = list(ctx.db.execute(select(Document).where(*prev_cond)).scalars())
@@ -159,7 +159,9 @@ def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
 def actualizar_expediente(ctx: PipelineContext) -> None:
     """Paso 5: auto-versiona, recalcula checklist + estado + next steps."""
     doc = ctx.document
-    doc_type = ctx.detected_type or ctx.declared_type
+    # El documento pertenece al slot que se DECLARO (lo que el usuario intentaba
+    # llenar). Si no hay declarado (huerfanos/webhooks), se usa el detectado.
+    doc_type = ctx.declared_type or ctx.detected_type
     if doc_type and doc_type != DocType.OTHER:
         _auto_version(ctx, doc_type)
         item = (

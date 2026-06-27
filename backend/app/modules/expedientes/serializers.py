@@ -97,7 +97,7 @@ def serialize_documento(db: Session, doc: Document, with_version: bool = True) -
 
     return {
         "id": str(doc.id),
-        "tipo": doc.detected_type_code or doc.declared_type_code or "OTHER",
+        "tipo": doc.declared_type_code or doc.detected_type_code or "OTHER",
         "estado": doc.status_code,
         "filename": doc.file_name or "documento",
         "archivoUrl": storage.resolve_url(doc.file_url),
