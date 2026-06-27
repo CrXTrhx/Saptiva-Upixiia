@@ -9,10 +9,12 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Mail,
   MessageSquare,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import ReenviarInstruccionesModal from "@/components/expediente/modals/ReenviarInstruccionesModal";
 import { expedientesService } from "@/services/expedientesService";
 import { configSistema } from "@/lib/config-sistema";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
@@ -137,22 +139,33 @@ function InstruccionesContent() {
 
   // --- Data loading ---
   const [expediente, setExpediente] = useState<Expediente | null>(null);
+  const [instruccionesData, setInstruccionesData] = useState<{
+    texto: string; remitente: string; destinatario: string; asunto: string;
+  } | null>(null);
   const [dataStatus, setDataStatus] = useState<
     "loading" | "loaded" | "notFound" | "error"
   >("loading");
 
   useEffect(() => {
-    expedientesService
-      .getExpediente(id)
-      .then((exp) => {
-        if (exp) {
-          setExpediente(exp);
-          setDataStatus("loaded");
-        } else {
-          setDataStatus("notFound");
-        }
-      })
-      .catch(() => setDataStatus("error"));
+    Promise.all([
+      expedientesService.getExpediente(id),
+      expedientesService.getInstrucciones(id).catch(() => null),
+    ]).then(([exp, instrucciones]) => {
+      if (exp) {
+        setExpediente(exp);
+        setDataStatus("loaded");
+      } else {
+        setDataStatus("notFound");
+      }
+      if (instrucciones) {
+        setInstruccionesData({
+          texto: instrucciones.texto,
+          remitente: instrucciones.remitente,
+          destinatario: instrucciones.destinatario,
+          asunto: instrucciones.asunto,
+        });
+      }
+    }).catch(() => setDataStatus("error"));
   }, [id]);
 
   // --- Entry animation phases ---
@@ -192,6 +205,30 @@ function InstruccionesContent() {
   useEffect(() => {
     return () => copyTimersRef.current.forEach(clearTimeout);
   }, []);
+
+  // --- Send email modal ---
+  const [modalOpen, setModalOpen] = useState(false);
+  const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "sent" | "noMailgun" | "error">("idle");
+  const sendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => { if (sendTimerRef.current) clearTimeout(sendTimerRef.current); };
+  }, []);
+
+  async function handleConfirmSend() {
+    if (!expediente || sendStatus === "sending") return;
+    setSendStatus("sending");
+    try {
+      const result = await expedientesService.reenviarInstrucciones(expediente.id);
+      setModalOpen(false);
+      setSendStatus(result.enviado ? "sent" : "noMailgun");
+      sendTimerRef.current = setTimeout(() => setSendStatus("idle"), 4000);
+    } catch {
+      setModalOpen(false);
+      setSendStatus("error");
+      sendTimerRef.current = setTimeout(() => setSendStatus("idle"), 4000);
+    }
+  }
 
   const mensaje = useMemo(() => {
     if (!expediente) return "";
@@ -572,50 +609,77 @@ function InstruccionesContent() {
                   </div>
 
                   <div className="rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border-inner)] p-5 text-[13px] leading-relaxed whitespace-pre-line text-[var(--color-text)] mb-4">
-                    {mensaje}
+                    {instruccionesData?.texto ?? mensaje}
                   </div>
 
+                  {/* Enviar por correo — abre modal de preview */}
+                  <button
+                    onClick={() => setModalOpen(true)}
+                    disabled={!expediente.clienteCorreo || sendStatus === "sending"}
+                    title={!expediente.clienteCorreo ? "El expediente no tiene correo del cliente" : undefined}
+                    className={`w-full flex items-center justify-center gap-2 rounded-lg py-3 text-sm font-medium transition-all mb-3 ${
+                      !expediente.clienteCorreo
+                        ? "bg-[var(--color-disabled-bg)] text-[var(--color-muted)] cursor-not-allowed"
+                        : sendStatus === "sent"
+                          ? "bg-[var(--color-success)] text-white cursor-pointer"
+                          : sendStatus === "error" || sendStatus === "noMailgun"
+                            ? "bg-[var(--color-disabled-bg)] text-[var(--color-muted)] cursor-pointer"
+                            : "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] cursor-pointer"
+                    }`}
+                  >
+                    <AnimatePresence mode="wait">
+                      {sendStatus === "sending" ? (
+                        <motion.span key="sending" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                          <svg className="animate-spin" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeOpacity="0.3" strokeWidth="2"/><path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                          Enviando…
+                        </motion.span>
+                      ) : sendStatus === "sent" ? (
+                        <motion.span key="sent" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                          <Check size={16} strokeWidth={2.5} />
+                          Correo enviado
+                        </motion.span>
+                      ) : sendStatus === "noMailgun" ? (
+                        <motion.span key="noMailgun" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          Sin configuración de correo (dev)
+                        </motion.span>
+                      ) : sendStatus === "error" ? (
+                        <motion.span key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                          No se pudo enviar
+                        </motion.span>
+                      ) : (
+                        <motion.span key="send" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                          <Mail size={16} strokeWidth={2} />
+                          {expediente.clienteCorreo
+                            ? `Enviar a ${expediente.clienteCorreo}`
+                            : "Enviar por correo"}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </button>
+
+                  {/* Copiar mensaje (secundario) */}
                   <button
                     onClick={handleCopy}
-                    className={`w-full flex items-center justify-center gap-2 rounded-lg py-3 text-sm font-medium transition-all cursor-pointer ${
+                    className={`w-full flex items-center justify-center gap-2 rounded-lg py-3 text-sm font-medium transition-all cursor-pointer border ${
                       copied
-                        ? "bg-[var(--color-success)] text-white"
+                        ? "border-[var(--color-success)] bg-[var(--color-success-bg)] text-[var(--color-success)]"
                         : copyError
-                          ? "bg-[var(--color-disabled-bg)] text-[var(--color-muted)]"
-                          : "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]"
+                          ? "border-[var(--color-border)] bg-[var(--color-disabled-bg)] text-[var(--color-muted)]"
+                          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:border-[var(--color-tertiary)] hover:text-[var(--color-text)]"
                     }`}
                   >
                     <AnimatePresence mode="wait">
                       {copied ? (
-                        <motion.span
-                          key="copied"
-                          className="flex items-center gap-2"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.15 }}
-                        >
+                        <motion.span key="copied" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                           <Check size={16} strokeWidth={2.5} />
                           Mensaje copiado
                         </motion.span>
                       ) : copyError ? (
-                        <motion.span
-                          key="error"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                        >
+                        <motion.span key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                           No se pudo copiar
                         </motion.span>
                       ) : (
-                        <motion.span
-                          key="copy"
-                          className="flex items-center gap-2"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.15 }}
-                        >
+                        <motion.span key="copy" className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                           <Copy size={16} strokeWidth={2} />
                           Copiar mensaje
                         </motion.span>
@@ -702,7 +766,19 @@ function InstruccionesContent() {
             </div>
           </main>
 
-          {/* Toast */}
+          {/* Modal de preview de correo */}
+          <ReenviarInstruccionesModal
+            open={modalOpen}
+            remitente={instruccionesData?.remitente ?? ""}
+            destinatario={instruccionesData?.destinatario ?? expediente?.clienteCorreo ?? ""}
+            asunto={instruccionesData?.asunto ?? expediente?.codigo ?? ""}
+            texto={instruccionesData?.texto ?? mensaje}
+            loading={sendStatus === "sending"}
+            onConfirm={handleConfirmSend}
+            onClose={() => setModalOpen(false)}
+          />
+
+          {/* Toasts */}
           <AnimatePresence>
             {toast && (
               <motion.div
@@ -712,12 +788,21 @@ function InstruccionesContent() {
                 exit={{ opacity: 0, y: 6 }}
                 transition={{ duration: 0.25 }}
               >
-                <Check
-                  size={14}
-                  strokeWidth={2.5}
-                  style={{ color: "var(--color-accent)" }}
-                />
+                <Check size={14} strokeWidth={2.5} style={{ color: "var(--color-accent)" }} />
                 Mensaje copiado al portapapeles
+              </motion.div>
+            )}
+            {sendStatus === "sent" && (
+              <motion.div
+                key="toast-sent"
+                className="fixed bottom-6 left-1/2 z-40 pointer-events-none -translate-x-1/2 flex items-center gap-2 rounded-lg bg-[var(--color-text)] px-4 py-2.5 text-sm text-white"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.25 }}
+              >
+                <Check size={14} strokeWidth={2.5} style={{ color: "var(--color-success)" }} />
+                Correo enviado a {expediente?.clienteCorreo}
               </motion.div>
             )}
           </AnimatePresence>

@@ -120,6 +120,7 @@ def instrucciones(
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
+    remitente = settings.mail_from or f"noreply@{settings.mailgun_domain}" if settings.mailgun_domain else "noreply@upiixia.com"
     return {
         "codigo": case.code,
         "destinatario": case.client_email or "",
@@ -127,7 +128,14 @@ def instrucciones(
         "asunto": case.code,
         "whatsapp": settings.system_whatsapp,
         "correo": settings.system_email,
+<<<<<<< Updated upstream
         "texto": service.instrucciones_texto(db, case),
+=======
+        "texto": service.instrucciones_texto(case),
+        "remitente": remitente,
+        "destinatario": case.client_email or "",
+        "asunto": f"Documentos para tu expediente {case.code}",
+>>>>>>> Stashed changes
     }
 
 
@@ -165,14 +173,14 @@ def cancelar(
     return serializers.serialize_expediente(db, case)
 
 
-@router.post("/expedientes/{case_id}/reenviar-instrucciones", status_code=204)
+@router.post("/expedientes/{case_id}/reenviar-instrucciones")
 def reenviar_instrucciones(
     case_id: str,
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
-    service.reenviar_instrucciones(db, case, user)
+    return service.reenviar_instrucciones(db, case, user)
 
 
 @router.post("/expedientes/{case_id}/notas", status_code=201)
