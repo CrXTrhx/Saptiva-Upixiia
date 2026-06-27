@@ -42,6 +42,7 @@ import {
 import type { Estado, Expediente, TipoOperacion } from "@/lib/types";
 import { TIPO_OPERACION_LABEL } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
+import { usePaginacionRender } from "@/lib/usePaginacionRender";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
@@ -99,12 +100,16 @@ export type ClienteLite = {
   nombre: string;
   telefono?: string;
   correo?: string;
-  rfc?: string;
+  rfc?: string | null;
+  montoTotal?: number;
+  totalExpedientes?: number;
+  conteoPorEstado?: Partial<Record<Estado, number>>;
 };
 
 type Props = {
   cliente: ClienteLite | null | undefined; // requerido en uso normal
   expedientes: Expediente[] | null | undefined; // SOLO los de este cliente
+  loading?: boolean; // expedientes del cliente cargándose (carga diferida)
   onBack: () => void; // host → vuelve a P2
   onAbrirExpediente: (exp: Expediente) => void; // host → navega a la P5 EXISTENTE
   onNuevaVenta?: (cliente: ClienteLite) => void; // host → navega a P3 existente
@@ -154,6 +159,7 @@ function primerNombre(nombre?: string): string {
 export default function ClienteDetalle({
   cliente,
   expedientes,
+  loading = false,
   onBack,
   onAbrirExpediente,
   onNuevaVenta,
@@ -170,6 +176,22 @@ export default function ClienteDetalle({
 
   // STATS sobre TODOS los expedientes del cliente (no los filtrados)
   const stats = useMemo(() => {
+    // La ficha compacta agrupada por RFC ya contiene estos agregados. Se muestran
+    // mientras llega la lista diferida para evitar KPIs temporalmente en cero.
+    if (lista.length === 0 && cliente?.totalExpedientes != null) {
+      const distribucion = cliente.conteoPorEstado ?? {};
+      const activos = (Object.entries(distribucion) as [Estado, number][])
+        .filter(([estado]) => !TERMINALES.includes(estado))
+        .reduce((total, [, cantidad]) => total + cantidad, 0);
+      return {
+        total: cliente.totalExpedientes,
+        montoTotal: cliente.montoTotal ?? 0,
+        distribucion,
+        activos,
+        urgentes: distribucion.INCOMPLETE_EXPIRED ?? 0,
+      };
+    }
+
     const total = lista.length;
     const montoTotal = lista.reduce((s, e) => s + (e.montoEstimado ?? 0), 0);
     const distribucion = lista.reduce(
@@ -184,7 +206,7 @@ export default function ClienteDetalle({
       (e) => e.estado === "INCOMPLETE_EXPIRED",
     ).length;
     return { total, montoTotal, distribucion, activos, urgentes };
-  }, [lista]);
+  }, [cliente, lista]);
 
   // FILTRADOS: estado + operación + búsqueda; ordenados por prioridad de estado
   const filtrados = useMemo(() => {
@@ -205,6 +227,10 @@ export default function ClienteDetalle({
   }, [lista, search, filterEstado, filterOperacion]);
 
   const hasFilters = !!(search.trim() || filterEstado || filterOperacion);
+
+  // Carga progresiva: no renderizamos los 40 de golpe; mostramos N y "Ver más".
+  const { mostrados, hayMas, restantes, verMas, pageSize } =
+    usePaginacionRender(filtrados, 12);
 
   function limpiarFiltros() {
     setSearch("");
@@ -247,24 +273,21 @@ export default function ClienteDetalle({
                 type="button"
                 onClick={onBack}
                 aria-label="Volver al dashboard"
-                className="transition-colors cursor-pointer"
-                style={{ color: COLOR.muted2 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = COLOR.text)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = COLOR.muted2)}
+                className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+                style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#D1D5DB";
+                  e.currentTarget.style.color = COLOR.text;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#E5E7EB";
+                  e.currentTarget.style.color = "#4B5563";
+                }}
               >
                 <ArrowLeft size={16} />
+                <span>Dashboard</span>
+                <ChevronRight size={11} style={{ color: COLOR.faint }} />
               </button>
-              <button
-                type="button"
-                onClick={onBack}
-                className="cursor-pointer transition-colors"
-                style={{ color: COLOR.muted }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = COLOR.text)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = COLOR.muted)}
-              >
-                Dashboard
-              </button>
-              <ChevronRight size={14} style={{ color: COLOR.faint }} />
               <span className="font-medium" style={{ color: COLOR.text }}>
                 {cliente?.nombre ?? "—"}
               </span>
@@ -477,7 +500,28 @@ export default function ClienteDetalle({
                 <div>Siguiente paso</div>
               </div>
 
-              {filtrados.length === 0 ? (
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="grid items-center animate-pulse"
+                    style={{
+                      gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
+                      gap: 16,
+                      padding: "16px 24px",
+                      borderBottom:
+                        i === 3 ? "none" : `1px solid ${COLOR.borderInner}`,
+                    }}
+                  >
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-5 w-20 rounded-full" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                  </div>
+                ))
+              ) : filtrados.length === 0 ? (
                 <div className="px-5 py-16 text-center flex flex-col items-center gap-3">
                   <FileText size={26} style={{ color: COLOR.faint }} />
                   <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
@@ -488,17 +532,16 @@ export default function ClienteDetalle({
                 </div>
               ) : (
                 <AnimatePresence mode="popLayout">
-                  {filtrados.map((exp, i) => {
-                    const c = estadoCfg(exp.estado);
+                  {mostrados.map((exp, i) => {
                     const vencido = exp.estado === "INCOMPLETE_EXPIRED";
                     return (
                       <motion.div
                         key={exp.id}
                         layout
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.25, delay: i * 0.03, ease: EASE_OUT }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15, ease: EASE_OUT }}
                         role="link"
                         tabIndex={0}
                         aria-label={`Ver expediente ${exp.codigo ?? ""}`}
@@ -514,7 +557,7 @@ export default function ClienteDetalle({
                           gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
                           gap: 16,
                           padding: "16px 24px",
-                          borderBottom: i === filtrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
+                          borderBottom: i === mostrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -551,6 +594,25 @@ export default function ClienteDetalle({
                     );
                   })}
                 </AnimatePresence>
+              )}
+              {hayMas && (
+                <div
+                  className="flex justify-center p-3"
+                  style={{ borderTop: `1px solid ${COLOR.borderInner}` }}
+                >
+                  <button
+                    type="button"
+                    onClick={verMas}
+                    className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-medium cursor-pointer transition-colors"
+                    style={{ backgroundColor: COLOR.surface, border: `1px solid ${COLOR.border}`, color: COLOR.text2 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = COLOR.surface)}
+                  >
+                    <ChevronDown size={14} />
+                    Ver {Math.min(pageSize, restantes)} más
+                    <span style={{ color: COLOR.muted2 }}>· {restantes} restantes</span>
+                  </button>
+                </div>
               )}
             </div>
           </>

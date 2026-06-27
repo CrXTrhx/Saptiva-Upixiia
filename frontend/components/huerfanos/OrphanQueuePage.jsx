@@ -62,7 +62,7 @@ const tipoDetectadoConfig = {
   OFFICIAL_ID: { label: "INE", color: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
   CURP: { label: "CURP", color: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
   TAX_STATUS_CERT: { label: "CSF", color: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
-  PROOF_OF_ADDRESS: { label: "Comprobante", color: "#10B981", bg: "#D1FAE5", text: "#047857" },
+  PROOF_OF_ADDRESS: { label: "Comprobante de Domicilio", color: "#10B981", bg: "#D1FAE5", text: "#047857" },
   UNKNOWN: { label: "Desconocido", color: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280" },
 };
 
@@ -132,13 +132,13 @@ const documentosHuerfanosIniciales = [
     archivo: "comprobante_luz.jpg",
     archivoUrl: "https://placehold.co/400x600/DBEAFE/1F2937?text=Comprobante+Luz",
     mimeType: "image/png",
-    tipoDetectado: "Comprobante",
+    tipoDetectado: "Comprobante de domicilio",
     canal: "WhatsApp",
     remitente: "+52 55 8888 7777",
     timestamp: "24/06/2026 11:15",
     mensajeOriginal: "Buenas tardes, mando mi comprobante. Espero que sea el correcto, cualquier cosa me avisan.",
     estado: "pendiente",
-    datosExtraidos: { nombre: "Miguel Vargas", rfc: null, curp: null, tipoDocumento: "Comprobante", domicilio: "Av. Reforma 123, CDMX", fechaEmision: "01/04/2026", confianza: 74 },
+    datosExtraidos: { nombre: "Miguel Vargas", rfc: null, curp: null, tipoDocumento: "Comprobante de domicilio", domicilio: "Av. Reforma 123, CDMX", fechaEmision: "01/04/2026", confianza: 74 },
   },
   {
     id: "HUE-004",
@@ -231,7 +231,7 @@ const TYPE_OPTIONS = [
   { value: "OFFICIAL_ID", label: "INE" },
   { value: "CURP", label: "CURP" },
   { value: "TAX_STATUS_CERT", label: "CSF" },
-  { value: "PROOF_OF_ADDRESS", label: "Comprobante" },
+  { value: "PROOF_OF_ADDRESS", label: "Comprobante de Domicilio" },
   { value: "UNKNOWN", label: "Desconocido" },
 ];
 
@@ -860,19 +860,23 @@ export default function OrphanQueuePage({
               <button
                 type="button"
                 onClick={handleVolverDashboard}
-                className="transition-colors"
-                style={{ color: "#9CA3AF" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#111827")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#9CA3AF")}
-                aria-label="Volver"
+                className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+                style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#D1D5DB";
+                  e.currentTarget.style.color = "#111827";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#E5E7EB";
+                  e.currentTarget.style.color = "#4B5563";
+                }}
+                aria-label="Volver al dashboard"
               >
                 <ArrowLeft size={16} />
-              </button>
-              <nav className="flex items-center gap-1.5 text-[12px]" aria-label="Breadcrumb">
-                <span style={{ color: "#9CA3AF" }}>Dashboard</span>
+                <span>Dashboard</span>
                 <ChevronRight size={11} style={{ color: "#D1D5DB" }} />
-                <span className="font-medium" style={{ color: "#111827" }}>Cola de Huérfanos</span>
-              </nav>
+              </button>
+              <span className="text-[12px] text-[#6B7280]">Cola de Huérfanos</span>
             </div>
 
             <button

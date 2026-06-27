@@ -50,7 +50,35 @@ def listar_expedientes(
     cases = service.list_expedientes(
         db, search=search, estado=estado, desde=desde, hasta=hasta, doc_faltante=doc_faltante
     )
-    return [serializers.serialize_expediente(db, c) for c in cases]
+    return serializers.serialize_expedientes_bulk(db, cases)
+
+
+@router.get("/expedientes/pagina")
+def listar_expedientes_pagina(
+    search: str | None = Query(default=None),
+    estado: str | None = Query(default=None),
+    desde: str | None = Query(default=None),
+    hasta: str | None = Query(default=None),
+    doc_faltante: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    cases, total = service.list_expedientes_pagina(
+        db,
+        search=search,
+        estado=estado,
+        desde=desde,
+        hasta=hasta,
+        doc_faltante=doc_faltante,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "items": serializers.serialize_expedientes_bulk(db, cases),
+        "total": total,
+    }
 
 
 @router.get("/expedientes/{case_id}")
@@ -94,9 +122,12 @@ def instrucciones(
     case = service.get_case_or_404(db, case_id)
     return {
         "codigo": case.code,
+        "destinatario": case.client_email or "",
+        "remitente": settings.mail_from or settings.system_email,
+        "asunto": case.code,
         "whatsapp": settings.system_whatsapp,
         "correo": settings.system_email,
-        "texto": service.instrucciones_texto(case),
+        "texto": service.instrucciones_texto(db, case),
     }
 
 

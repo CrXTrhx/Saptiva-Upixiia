@@ -2,8 +2,17 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, ChevronRight, FileText, Loader2, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  FileText,
+  Loader2,
+  Sparkles,
+  Lock,
+  Check,
+  X,
+  UserCheck,
+} from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { expedientesService } from "@/services/expedientesService";
@@ -23,7 +32,10 @@ import {
   UMBRALES_IDENTIFICACION,
   TIPO_OPERACION_LABELS,
 } from "@/lib/reglas-negocio";
-import type { TipoOperacion } from "@/lib/types";
+import type { RfcSugerencia, TipoOperacion } from "@/lib/types";
+
+// El RFC es obligatorio en este formulario (identidad del cliente).
+const VALIDATE_OPTS = { rfcRequired: true } as const;
 
 // --- Reusable Field ---
 
@@ -71,6 +83,12 @@ const inputBase =
   "w-full rounded-lg border bg-[var(--color-surface)] px-3.5 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-tertiary)] transition-colors focus:outline-none focus:ring-2 hover:border-[var(--color-muted)]";
 const inputNormal = `${inputBase} border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-ring)]`;
 const inputError = `${inputBase} border-[var(--color-error)] focus:border-[var(--color-error)] focus:ring-[var(--color-error)]/15`;
+
+const lockedStyle: React.CSSProperties = {
+  backgroundColor: "var(--color-bg)",
+  color: "var(--color-muted)",
+  cursor: "not-allowed",
+};
 
 function inputClass(hasError: boolean) {
   return hasError ? inputError : inputNormal;
@@ -140,10 +158,13 @@ export default function NuevaVentaPage() {
 function NuevaVentaContent() {
   const router = useRouter();
 
-  // Prefill desde P6 (Cola de Huérfanos). peek = lee sin consumir (seguro para el
-  // inicializador). Se limpia al montar para que una visita manual quede en blanco.
+  // Prefill: desde la Cola de Huérfanos (documentoOrigen) o desde un cliente
+  // existente (clienteLock = datos del cliente precargados y bloqueados).
   const prefill = useMemo(() => peekNuevaVentaPrefill(), []);
   const documentoOrigen = prefill?.documentoOrigen ?? null;
+  const returnTo = prefill?.returnTo ?? "/dashboard";
+  const lockedFields = useMemo(() => new Set(prefill?.lockedFields ?? []), [prefill]);
+  const modoCliente = !!prefill?.clienteLock;
 
   useEffect(() => {
     clearNuevaVentaPrefill();
@@ -168,13 +189,103 @@ function NuevaVentaContent() {
   const [status, setStatus] = useState<FormStatus>("idle");
   const [serverError, setServerError] = useState<string | null>(null);
 
+  // Cliente existente al que se asociará la venta (por RFC). En modo cliente viene
+  // ya fijado; en modo normal se fija al elegir/coincidir una sugerencia.
+  const [asociado, setAsociado] = useState<RfcSugerencia | null>(
+    modoCliente && prefill
+      ? {
+          rfc: prefill.rfc,
+          nombre: prefill.nombreCliente,
+          telefono: prefill.telefono,
+          correo: prefill.correo,
+        }
+      : null,
+  );
+  // Un campo está bloqueado si viene de lockedFields (main) O hay un cliente asociado.
+  const clienteBloqueado = modoCliente || !!asociado;
+  function isLocked(field: string) {
+    return clienteBloqueado || lockedFields.has(field);
+  }
+
+  // Autocompletado de RFC
+  const [sugerencias, setSugerencias] = useState<RfcSugerencia[]>([]);
+  const [rfcFocus, setRfcFocus] = useState(false);
+
   const codigoPreview = useMemo(
-    () => expedientesService.previewNextCodigo(),
-    [],
+    () =>
+      expedientesService.previewNextCodigo(
+        values.tipoOperacion as TipoOperacion | "",
+      ),
+    [values.tipoOperacion],
   );
 
-  const validation = useMemo(() => validateForm(values), [values]);
+  const validation = useMemo(
+    () => validateForm(values, VALIDATE_OPTS),
+    [values],
+  );
   const isValid = validation.success;
+
+  // Asocia la venta a un cliente existente: precarga y bloquea sus datos.
+  const asociarCliente = useCallback((sug: RfcSugerencia) => {
+    setAsociado(sug);
+    setSugerencias([]);
+    setRfcFocus(false);
+    setValues((prev) => ({
+      ...prev,
+      clienteRfc: sug.rfc.toUpperCase(),
+      clienteNombre: sug.nombre,
+      clienteTelefono: sug.telefono,
+      clienteCorreo: sug.correo,
+    }));
+    setErrors({});
+  }, []);
+
+  // Quita la asociación (modo normal) para capturar un cliente nuevo.
+  const quitarAsociacion = useCallback(() => {
+    setAsociado(null);
+    setSugerencias([]);
+    setValues((prev) => ({
+      ...prev,
+      clienteRfc: "",
+      clienteNombre: "",
+      clienteTelefono: "",
+      clienteCorreo: "",
+    }));
+    setErrors({});
+    setTouched({});
+  }, []);
+
+  // Busca sugerencias mientras se escribe el RFC (debounce). Si lo escrito coincide
+  // EXACTAMENTE con un cliente existente, se asocia automáticamente.
+  useEffect(() => {
+    if (clienteBloqueado) {
+      setSugerencias([]);
+      return;
+    }
+    const rfc = values.clienteRfc.trim();
+    if (rfc.length < 2) {
+      setSugerencias([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      expedientesService.getSugerenciasRfc(rfc).then((res) => {
+        if (cancelled) return;
+        const exact = res.find(
+          (s) => s.rfc.toUpperCase() === rfc.toUpperCase(),
+        );
+        if (exact && rfc.length >= 12) {
+          asociarCliente(exact);
+          return;
+        }
+        setSugerencias(res);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [values.clienteRfc, clienteBloqueado, asociarCliente]);
 
   // On-change: revalidate only if already touched
   const handleChange = useCallback(
@@ -185,7 +296,7 @@ function NuevaVentaContent() {
       const next = { ...values, [field]: cleaned };
       setValues((prev) => ({ ...prev, [field]: cleaned }));
       if (touched[field]) {
-        const err = validateField(field, cleaned, next);
+        const err = validateField(field, cleaned, next, VALIDATE_OPTS);
         setErrors((prev) => {
           const copy = { ...prev };
           if (err) copy[field] = err;
@@ -201,7 +312,7 @@ function NuevaVentaContent() {
   const handleBlur = useCallback(
     (field: keyof NuevaVentaFormValues) => {
       setTouched((prev) => ({ ...prev, [field]: true }));
-      const err = validateField(field, values[field], values);
+      const err = validateField(field, values[field], values, VALIDATE_OPTS);
       setErrors((prev) => {
         const copy = { ...prev };
         if (err) copy[field] = err;
@@ -230,25 +341,17 @@ function NuevaVentaContent() {
     return "Completa los campos obligatorios";
   }, [status, errors, isValid, touched]);
 
-  // Extension point: map backend field errors to form errors
-  function applyServerFieldErrors(
-    fieldErrors: Partial<Record<keyof NuevaVentaFormValues, string>>,
-  ) {
-    setErrors((prev) => ({ ...prev, ...fieldErrors }));
-  }
-
   async function handleSubmit(ev: FormEvent) {
     ev.preventDefault();
     setServerError(null);
 
-    // Touch all fields to show all errors
     const allTouched: typeof touched = {};
     for (const k of Object.keys(values) as (keyof NuevaVentaFormValues)[]) {
       allTouched[k] = true;
     }
     setTouched(allTouched);
 
-    const result = validateForm(values);
+    const result = validateForm(values, VALIDATE_OPTS);
     if (!result.success) {
       setErrors(result.errors);
       return;
@@ -259,21 +362,9 @@ function NuevaVentaContent() {
     try {
       const exp = await expedientesService.createExpediente(result.data);
       setStatus("success");
-      // Si viene de un documento huérfano, conservar el origen para el historial
-      // de P5 (evento creacion_desde_huerfano). En real lo registra el service.
-      if (documentoOrigen) {
-        console.log("Evento historial:", {
-          tipo: "creacion_desde_huerfano",
-          descripcion: `Expediente creado desde documento huérfano ${documentoOrigen.archivo}`,
-          documentoOrigen,
-        });
-      }
       router.push(`/expedientes/${exp.id}/instrucciones`);
     } catch (err) {
       setStatus("error");
-      // Extension point: if backend returns per-field errors, map them here
-      // e.g. if (err.fieldErrors) applyServerFieldErrors(err.fieldErrors);
-      void applyServerFieldErrors;
       setServerError(
         err instanceof Error
           ? err.message
@@ -287,6 +378,8 @@ function NuevaVentaContent() {
   }
 
   const submitting = status === "submitting";
+  const mostrarSugerencias =
+    rfcFocus && !clienteBloqueado && sugerencias.length > 0;
 
   return (
     <div className="min-h-screen">
@@ -294,25 +387,32 @@ function NuevaVentaContent() {
       <header className="border-b border-[var(--color-border)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 sm:px-8 py-4">
           <div className="flex items-center gap-3 text-sm">
-            <Link
-              href="/dashboard"
-              className="text-[var(--color-tertiary)] hover:text-[var(--color-text)] transition-colors"
-              aria-label="Volver al Dashboard"
+            <button
+              type="button"
+              onClick={() => {
+                if (returnTo === "back") router.back();
+                else router.push(returnTo);
+              }}
+              className="text-[var(--color-tertiary)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+              aria-label="Volver"
             >
               <ArrowLeft size={18} strokeWidth={1.75} />
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (returnTo === "back") router.back();
+                else router.push(returnTo);
+              }}
+              className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
             >
               Dashboard
-            </Link>
+            </button>
             <ChevronRight size={14} className="text-[var(--color-border)]" />
             <span className="font-medium text-[var(--color-text)]">
               Nueva venta
             </span>
           </div>
-
         </div>
       </header>
 
@@ -321,10 +421,12 @@ function NuevaVentaContent() {
         {/* Title */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-text)]">
-            Nueva venta
+            {modoCliente ? `Nueva venta · ${values.clienteNombre}` : "Nueva venta"}
           </h1>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Captura los datos iniciales para crear un expediente
+            {modoCliente
+              ? "Los datos del cliente están precargados. Solo captura los datos de la venta (tipo y monto)."
+              : "Captura los datos iniciales para crear un expediente"}
           </p>
         </div>
 
@@ -379,6 +481,34 @@ function NuevaVentaContent() {
           </div>
         )}
 
+        {/* Banner: asociado a un cliente existente */}
+        {asociado && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent-light)] p-4">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <UserCheck
+                size={16}
+                className="text-[var(--color-accent-text-dark)] shrink-0"
+                strokeWidth={2}
+              />
+              <p className="text-sm text-[var(--color-accent-text-dark)] min-w-0">
+                Esta venta se asociará al cliente existente{" "}
+                <span className="font-semibold">{asociado.nombre}</span>{" "}
+                <span className="font-mono">({asociado.rfc})</span>
+              </p>
+            </div>
+            {!modoCliente && (
+              <button
+                type="button"
+                onClick={quitarAsociacion}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-accent-text-dark)] hover:bg-[var(--color-accent)]/10 transition-colors cursor-pointer shrink-0"
+              >
+                <X size={13} />
+                Cambiar
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Grid layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Form card — 2/3 */}
@@ -389,6 +519,86 @@ function NuevaVentaContent() {
               className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8"
             >
               <div className="flex flex-col gap-6">
+                {/* RFC — primero (identidad del cliente) con autocompletado */}
+                <Field
+                  label="RFC del cliente"
+                  required
+                  error={fieldErr("clienteRfc")}
+                  htmlFor="clienteRfc"
+                >
+                  <div className="relative">
+                    <input
+                      id="clienteRfc"
+                      type="text"
+                      placeholder="RAMS990101XXX"
+                      autoComplete="off"
+                      value={values.clienteRfc}
+                      readOnly={isLocked("clienteRfc")}
+                      onChange={(e) =>
+                        handleChange("clienteRfc", e.target.value)
+                      }
+                      onFocus={() => setRfcFocus(true)}
+                      onBlur={() => {
+                        setTimeout(() => setRfcFocus(false), 150);
+                        handleBlur("clienteRfc");
+                      }}
+                      maxLength={13}
+                      aria-invalid={!!fieldErr("clienteRfc")}
+                      aria-describedby={
+                        fieldErr("clienteRfc") ? "clienteRfc-error" : undefined
+                      }
+                      className={`${inputClass(!!fieldErr("clienteRfc"))} font-mono ${isLocked("clienteRfc") ? "pr-9" : ""}`}
+                      style={isLocked("clienteRfc") ? lockedStyle : undefined}
+                    />
+                    {isLocked("clienteRfc") && (
+                      <Lock
+                        size={14}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-tertiary)]"
+                        aria-hidden="true"
+                      />
+                    )}
+
+                    {/* Dropdown de sugerencias */}
+                    {mostrarSugerencias && (
+                      <ul
+                        className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg"
+                        role="listbox"
+                      >
+                        {sugerencias.map((s) => (
+                          <li key={s.rfc}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                asociarCliente(s);
+                              }}
+                              className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-[var(--color-bg)] cursor-pointer"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-[var(--color-text)]">
+                                  {s.nombre}
+                                </span>
+                                <span className="block truncate text-xs text-[var(--color-muted)]">
+                                  {s.telefono} · {s.correo}
+                                </span>
+                              </span>
+                              <span className="font-mono text-xs text-[var(--color-accent-text-dark)] shrink-0">
+                                {s.rfc}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {!isLocked("clienteRfc") && (
+                    <p className="text-xs text-[var(--color-tertiary)]">
+                      Si el RFC coincide con un cliente existente, la venta se
+                      asociará a él automáticamente.
+                    </p>
+                  )}
+                </Field>
+
                 {/* Nombre — full width */}
                 <Field
                   label="Nombre del cliente"
@@ -401,6 +611,7 @@ function NuevaVentaContent() {
                     type="text"
                     placeholder="Ej. Sofía Ramírez"
                     value={values.clienteNombre}
+                    readOnly={isLocked("clienteNombre")}
                     onChange={(e) =>
                       handleChange("clienteNombre", e.target.value)
                     }
@@ -412,6 +623,7 @@ function NuevaVentaContent() {
                         : undefined
                     }
                     className={inputClass(!!fieldErr("clienteNombre"))}
+                    style={isLocked("clienteNombre") ? lockedStyle : undefined}
                   />
                 </Field>
 
@@ -428,6 +640,7 @@ function NuevaVentaContent() {
                       type="tel"
                       placeholder="55 1234 5678"
                       value={values.clienteTelefono}
+                      readOnly={isLocked("clienteTelefono")}
                       onChange={(e) =>
                         handleChange("clienteTelefono", e.target.value)
                       }
@@ -439,6 +652,7 @@ function NuevaVentaContent() {
                           : undefined
                       }
                       className={inputClass(!!fieldErr("clienteTelefono"))}
+                      style={isLocked("clienteTelefono") ? lockedStyle : undefined}
                     />
                   </Field>
                   <Field
@@ -453,6 +667,7 @@ function NuevaVentaContent() {
                       placeholder="cliente@correo.com"
                       autoComplete="email"
                       value={values.clienteCorreo}
+                      readOnly={isLocked("clienteCorreo")}
                       onChange={(e) =>
                         handleChange("clienteCorreo", e.target.value)
                       }
@@ -464,36 +679,13 @@ function NuevaVentaContent() {
                           : undefined
                       }
                       className={inputClass(!!fieldErr("clienteCorreo"))}
+                      style={isLocked("clienteCorreo") ? lockedStyle : undefined}
                     />
                   </Field>
                 </div>
 
-                {/* RFC + Monto */}
+                {/* Datos de la venta: Monto + Tipo (siempre editables) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <Field
-                    label="RFC"
-                    error={fieldErr("clienteRfc")}
-                    htmlFor="clienteRfc"
-                  >
-                    <input
-                      id="clienteRfc"
-                      type="text"
-                      placeholder="RAMS990101XXX"
-                      value={values.clienteRfc}
-                      onChange={(e) =>
-                        handleChange("clienteRfc", e.target.value)
-                      }
-                      onBlur={() => handleBlur("clienteRfc")}
-                      maxLength={13}
-                      aria-invalid={!!fieldErr("clienteRfc")}
-                      aria-describedby={
-                        fieldErr("clienteRfc")
-                          ? "clienteRfc-error"
-                          : undefined
-                      }
-                      className={inputClass(!!fieldErr("clienteRfc"))}
-                    />
-                  </Field>
                   <Field
                     label="Monto estimado de la operación"
                     required
@@ -524,41 +716,39 @@ function NuevaVentaContent() {
                       />
                     </div>
                   </Field>
-                </div>
-
-                {/* Tipo de operación */}
-                <Field
-                  label="Tipo de operación"
-                  required
-                  error={fieldErr("tipoOperacion")}
-                  htmlFor="tipoOperacion"
-                >
-                  <select
-                    id="tipoOperacion"
-                    value={values.tipoOperacion}
-                    onChange={(e) =>
-                      handleChange("tipoOperacion", e.target.value)
-                    }
-                    onBlur={() => handleBlur("tipoOperacion")}
-                    aria-invalid={!!fieldErr("tipoOperacion")}
-                    aria-describedby={
-                      fieldErr("tipoOperacion")
-                        ? "tipoOperacion-error"
-                        : undefined
-                    }
-                    className={`${inputClass(!!fieldErr("tipoOperacion"))} cursor-pointer ${
-                      values.tipoOperacion === ""
-                        ? "text-[var(--color-tertiary)]"
-                        : ""
-                    }`}
+                  <Field
+                    label="Tipo de operación"
+                    required
+                    error={fieldErr("tipoOperacion")}
+                    htmlFor="tipoOperacion"
                   >
-                    <option value="" disabled>
-                      Seleccionar...
-                    </option>
-                    <option value="ARMORING">Blindaje</option>
-                    <option value="VEHICLE_SALE">Venta de vehículo</option>
-                  </select>
-                </Field>
+                    <select
+                      id="tipoOperacion"
+                      value={values.tipoOperacion}
+                      onChange={(e) =>
+                        handleChange("tipoOperacion", e.target.value)
+                      }
+                      onBlur={() => handleBlur("tipoOperacion")}
+                      aria-invalid={!!fieldErr("tipoOperacion")}
+                      aria-describedby={
+                        fieldErr("tipoOperacion")
+                          ? "tipoOperacion-error"
+                          : undefined
+                      }
+                      className={`${inputClass(!!fieldErr("tipoOperacion"))} cursor-pointer ${
+                        values.tipoOperacion === ""
+                          ? "text-[var(--color-tertiary)]"
+                          : ""
+                      }`}
+                    >
+                      <option value="" disabled>
+                        Seleccionar...
+                      </option>
+                      <option value="ARMORING">Blindaje</option>
+                      <option value="VEHICLE_SALE">Venta de vehículo</option>
+                    </select>
+                  </Field>
+                </div>
 
                 {/* Threshold note (informative, not blocking) */}
                 {showThresholdNote && (
@@ -634,6 +824,12 @@ function NuevaVentaContent() {
                   </span>
                 )}
               </p>
+              {asociado && (
+                <p className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--color-accent-text-dark)]">
+                  <Check size={12} />
+                  Cliente existente
+                </p>
+              )}
               <div className="mt-2.5">
                 <StatusBadge estado="CAPTURING" />
               </div>

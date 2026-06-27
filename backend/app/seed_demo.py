@@ -12,6 +12,8 @@ Credenciales: admin@centur.com / admin123 (y capturistas ana@/luis@/diana@centur
 from __future__ import annotations
 
 import random
+import re
+import string
 import sys
 
 from sqlalchemy import select, text
@@ -65,6 +67,15 @@ ALL_TYPES = [DocType.OFFICIAL_ID, DocType.CURP, DocType.TAX_STATUS_CERT, DocType
 
 def _slug(nombre: str) -> str:
     return nombre.lower().replace(" ", "_")
+
+
+def _rfc(nombre: str) -> str:
+    """RFC sintetico valido (persona fisica: 4 letras + 6 digitos + 3 homoclave)."""
+    letras = re.sub(r"[^A-Z]", "", nombre.upper())
+    letras = (letras + "XXXX")[:4]
+    fecha = f"{random.randint(70, 99):02d}{random.randint(1, 12):02d}{random.randint(1, 28):02d}"
+    homo = "".join(random.choices(string.ascii_uppercase + string.digits, k=3))
+    return letras + fecha + homo
 
 
 def _sender(channel: str, idx: int) -> str:
@@ -170,26 +181,45 @@ def _ensure_users() -> list[dict]:
     return [_U(d) for d in users]
 
 
-def _new_case(db, user, nombre, monto, tipo) -> CaseFile:
+def _new_case(db, user, cliente: dict, monto, tipo) -> CaseFile:
     req = CreateExpedienteRequest(
-        cliente_nombre=nombre,
-        cliente_telefono=f"55{random.randint(10000000, 99999999)}",
-        cliente_correo=f"{_slug(nombre)}@correo.com",
-        cliente_rfc=None,
+        cliente_nombre=cliente["nombre"],
+        cliente_telefono=cliente["telefono"],
+        cliente_correo=cliente["correo"],
+        cliente_rfc=cliente["rfc"],
         monto_estimado=monto,
         tipo_operacion=tipo,
     )
     return exp_service.create_expediente(db, req, user)
 
 
+def _make_clientes(nombres: list[str], n: int) -> list[dict]:
+    """Crea un pool de clientes con RFC fijo. Como cada expediente luego elige un
+    cliente del pool al azar, varios clientes terminan con MAS DE UN expediente:
+    asi se puede demostrar 'un cliente, muchos expedientes' (relacion por RFC)."""
+    clientes = []
+    for i in range(min(n, len(nombres))):
+        nombre = nombres[i]
+        clientes.append(
+            {
+                "nombre": nombre,
+                "telefono": f"55{random.randint(10000000, 99999999)}",
+                "correo": f"{_slug(nombre)}@correo.com",
+                "rfc": _rfc(nombre),
+            }
+        )
+    return clientes
+
+
 def seed_demo() -> None:
     users = _ensure_users()
     nombres = NOMBRES.copy()
     random.shuffle(nombres)
-    it = iter(nombres)
 
-    def nxt():
-        return next(it)
+    # Pool de ~16 clientes: hay menos clientes que expedientes (~39), asi que al
+    # asignar cada expediente a un cliente al azar, varios quedan con multiples
+    # expedientes (relacion cliente <- expedientes por RFC).
+    clientes = _make_clientes(nombres, 16)
 
     plan = (
         # (estado_objetivo, cantidad)
@@ -206,9 +236,11 @@ def seed_demo() -> None:
     for objetivo, n in plan:
         for _ in range(n):
             user = random.choice(users)
-            nombre, monto, tipo = nxt(), random.choice(MONTOS), random.choice(TIPOS)
+            cliente = random.choice(clientes)
+            nombre = cliente["nombre"]
+            monto, tipo = random.choice(MONTOS), random.choice(TIPOS)
             with db_session(user_id=str(user.id), user_label=user.email) as db:
-                case = _new_case(db, user, nombre, monto, tipo)
+                case = _new_case(db, user, cliente, monto, tipo)
                 cid = case.id
 
                 if objetivo == "CAPTURING":

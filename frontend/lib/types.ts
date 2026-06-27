@@ -51,7 +51,7 @@ export const DOCUMENTO_REQUERIDO_LABELS: Record<DocumentoRequerido, string> = {
   OFFICIAL_ID: "INE",
   CURP: "CURP",
   TAX_STATUS_CERT: "Constancia de Situación Fiscal",
-  PROOF_OF_ADDRESS: "Comprobante",
+  PROOF_OF_ADDRESS: "Comprobante de Domicilio",
 };
 
 export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
@@ -91,6 +91,30 @@ export type ClienteAgrupado = {
   tieneUrgente: boolean;
   // Ya vienen filtrados por el query y ordenados por prioridad.
   expedientes: Expediente[];
+};
+
+// Fila COMPACTA de cliente que devuelve el backend (GET /clientes): un cliente por
+// RFC con sus agregados, SIN la lista de expedientes (esos se cargan al hacer clic).
+// `id` es la clave de agrupación: el RFC, o el id del expediente si es legacy sin RFC.
+export type ClienteResumen = {
+  id: string;
+  rfc?: string | null;
+  nombre: string;
+  telefono: string;
+  correo: string;
+  montoTotal: number;
+  totalExpedientes: number;
+  conteoPorEstado: Partial<Record<Estado, number>>;
+  tieneUrgente: boolean;
+  ultimaActividad: string;
+};
+
+// Sugerencia de RFC para el autocompletado del form de nueva venta.
+export type RfcSugerencia = {
+  rfc: string;
+  nombre: string;
+  telefono: string;
+  correo: string;
 };
 
 export type CreateExpedienteRequest = {

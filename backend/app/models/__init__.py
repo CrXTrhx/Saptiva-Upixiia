@@ -54,8 +54,9 @@ class CaseFile(Base):
     __tablename__ = "case_file"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    # code lo genera el trigger tg_case_set_code; FetchedValue para recuperarlo via RETURNING
-    code: Mapped[str] = mapped_column(String(20), server_default=FetchedValue())
+    # code lo genera el trigger tg_case_set_code; FetchedValue para recuperarlo via RETURNING.
+    # Formato EXP-AAAA-####{BLN|VNT}##### (21 chars); 30 deja holgura.
+    code: Mapped[str] = mapped_column(String(30), server_default=FetchedValue())
     client_name: Mapped[str] = mapped_column(String(255))
     client_phone: Mapped[str | None] = mapped_column(String(30))
     client_email: Mapped[str | None] = mapped_column(String(255))

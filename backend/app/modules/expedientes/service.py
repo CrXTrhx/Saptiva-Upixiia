@@ -4,22 +4,28 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.codes import (
     CaseStatus,
     ChecklistStatus,
+    DocStatus,
+    DocType,
     EventType,
     OPEN_STATUSES,
+    RejectionReason,
 )
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError
+from app.integrations import email
 from app.models import (
     AppUser,
     CaseChecklistItem,
+    CaseEvent,
     CaseFile,
     CatChecklistTemplate,
+    Document,
     InternalNote,
 )
 from app.modules.eventos import registrar_evento
@@ -56,11 +62,30 @@ def get_case_or_404(db: Session, case_id: str) -> CaseFile:
 def create_expediente(
     db: Session, req: CreateExpedienteRequest, user: AppUser
 ) -> CaseFile:
+    rfc = (req.cliente_rfc or "").strip().upper() or None
+
+    # Si ya existe un cliente con este RFC, el nuevo expediente se ASOCIA a el (la
+    # relacion es por RFC). Heredamos CURP / codigo postal del expediente mas
+    # reciente de ese cliente para mantener consistente el emparejamiento de
+    # documentos huerfanos.
+    prev_curp = prev_cp = None
+    if rfc:
+        prev = db.execute(
+            select(CaseFile)
+            .where(CaseFile.client_rfc == rfc, CaseFile.active_flag == 1)
+            .order_by(CaseFile.created_at.desc())
+        ).scalars().first()
+        if prev:
+            prev_curp = prev.client_curp
+            prev_cp = prev.client_postal_code
+
     case = CaseFile(
         client_name=req.cliente_nombre.strip(),
         client_phone=req.cliente_telefono.strip(),
         client_email=req.cliente_correo,
-        client_rfc=(req.cliente_rfc or None),
+        client_rfc=rfc,
+        client_curp=prev_curp,
+        client_postal_code=prev_cp,
         estimated_amount=req.monto_estimado,
         operation_type_code=req.operation_type_code(),
         assigned_user_id=user.id,
@@ -157,30 +182,130 @@ def list_expedientes(
     if estado:
         stmt = stmt.where(CaseFile.status_code == estado)
     if desde:
-        stmt = stmt.where(CaseFile.created_at >= desde)
+        stmt = stmt.where(CaseFile.created_at >= dt.datetime.fromisoformat(desde))
     if hasta:
-        stmt = stmt.where(CaseFile.created_at <= hasta)
+        stmt = stmt.where(CaseFile.created_at <= dt.datetime.fromisoformat(hasta))
 
     cases = list(db.execute(stmt).scalars())
 
     if doc_faltante:
-        cases = [
-            c
-            for c in cases
-            if doc_faltante in serializers.documentos_faltantes(db, c.id)
-        ]
+        falt_map = serializers.documentos_faltantes_map(db, [c.id for c in cases])
+        cases = [c for c in cases if doc_faltante in falt_map.get(c.id, [])]
 
-    cases.sort(key=lambda c: (_prioridad(db, c), c.created_at))
+    # Una sola query batch para la ultima actividad (antes era 1 por caso en el sort).
+    ultima_map = serializers.ultima_actividad_map(db, [c.id for c in cases])
+    cases.sort(key=lambda c: (_prioridad(case=c, ultima_map=ultima_map), c.created_at))
     return cases
 
 
-def _prioridad(db: Session, case: CaseFile) -> int:
-    ultima = serializers._ultima_actividad(db, case)
+_ESTADOS_TERMINALES = (
+    CaseStatus.CANCELLED,
+    CaseStatus.ARCHIVED,
+    CaseStatus.COMPLETE,
+    CaseStatus.INCOMPLETE_EXPIRED,
+)
+
+_CHECKLIST_FALTANTE = (
+    ChecklistStatus.PENDING,
+    ChecklistStatus.REJECTED,
+    ChecklistStatus.EXPIRED,
+)
+
+
+def _prioridad(*, case: CaseFile, ultima_map: dict) -> int:
+    ultima = serializers.ultima_actividad_de(case, ultima_map)
     now = dt.datetime.now(dt.timezone.utc)
     inactivo = ultima is not None and (now - ultima) > _INACTIVIDAD
-    if inactivo and case.status_code in (CaseStatus.CAPTURING, CaseStatus.RECEIVING):
+    if inactivo and case.status_code not in _ESTADOS_TERMINALES:
         return 0
     return _ESTADO_PRIORIDAD.get(case.status_code, 5)
+
+
+def _orden_prioridad_sql():
+    """Replica en SQL el orden visible del frontend para paginar correctamente."""
+    ultima = func.coalesce(
+        select(func.max(CaseEvent.event_at))
+        .where(
+            CaseEvent.case_file_id == CaseFile.id,
+            CaseEvent.active_flag == 1,
+        )
+        .correlate(CaseFile)
+        .scalar_subquery(),
+        CaseFile.updated_at,
+        CaseFile.created_at,
+    )
+    inactivo = ultima < (dt.datetime.now(dt.timezone.utc) - _INACTIVIDAD)
+    return case(
+        (
+            and_(CaseFile.status_code.notin_(_ESTADOS_TERMINALES), inactivo),
+            0,
+        ),
+        (CaseFile.status_code == CaseStatus.INCOMPLETE_EXPIRED, 0),
+        (CaseFile.status_code == CaseStatus.IN_VALIDATION, 1),
+        (CaseFile.status_code == CaseStatus.RECEIVING, 2),
+        (CaseFile.status_code == CaseStatus.CAPTURING, 3),
+        (CaseFile.status_code == CaseStatus.COMPLETE, 4),
+        else_=5,
+    )
+
+
+def list_expedientes_pagina(
+    db: Session,
+    *,
+    search: str | None = None,
+    estado: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+    doc_faltante: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[CaseFile], int]:
+    """Página ordenada por prioridad sin cargar la colección completa en memoria."""
+    condiciones = [CaseFile.active_flag == 1]
+
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        condiciones.append(
+            or_(
+                CaseFile.client_name.ilike(like),
+                CaseFile.client_rfc.ilike(like),
+                CaseFile.code.ilike(like),
+                CaseFile.client_phone.ilike(like),
+                CaseFile.client_email.ilike(like),
+            )
+        )
+    if estado:
+        condiciones.append(CaseFile.status_code == estado)
+    if desde:
+        condiciones.append(CaseFile.created_at >= dt.datetime.fromisoformat(desde))
+    if hasta:
+        condiciones.append(CaseFile.created_at <= dt.datetime.fromisoformat(hasta))
+    if doc_faltante:
+        condiciones.append(
+            select(CaseChecklistItem.id)
+            .where(
+                CaseChecklistItem.case_file_id == CaseFile.id,
+                CaseChecklistItem.active_flag == 1,
+                CaseChecklistItem.document_type_code == doc_faltante,
+                CaseChecklistItem.status_code.in_(_CHECKLIST_FALTANTE),
+            )
+            .correlate(CaseFile)
+            .exists()
+        )
+
+    total = db.execute(
+        select(func.count()).select_from(CaseFile).where(*condiciones)
+    ).scalar_one()
+    cases = list(
+        db.execute(
+            select(CaseFile)
+            .where(*condiciones)
+            .order_by(_orden_prioridad_sql(), CaseFile.created_at, CaseFile.id)
+            .limit(limit)
+            .offset(offset)
+        ).scalars()
+    )
+    return cases, int(total)
 
 
 def conteos(db: Session) -> dict[str, int]:
@@ -263,22 +388,122 @@ def agregar_nota(db: Session, case: CaseFile, texto: str, user: AppUser) -> Inte
     return nota
 
 
-def instrucciones_texto(case: CaseFile) -> str:
-    return (
-        f"Hola, para tu tramite con Centur usa este codigo de expediente: {case.code}\n\n"
-        f"Envia tus documentos (INE, CURP, Constancia de Situacion Fiscal y comprobante "
-        f"de domicilio) por cualquiera de estos medios, incluyendo SIEMPRE el codigo "
-        f"{case.code} en el mensaje:\n"
-        f"  - WhatsApp: {settings.system_whatsapp}\n"
-        f"  - Correo: {settings.system_email}\n\n"
-        f"Gracias."
+# Etiquetas en espanol para el correo al cliente (copy humano, no contrato de API).
+_DOC_TYPE_ES = {
+    DocType.OFFICIAL_ID: "INE",
+    DocType.CURP: "CURP",
+    DocType.TAX_STATUS_CERT: "Constancia de Situacion Fiscal",
+    DocType.PROOF_OF_ADDRESS: "Comprobante de domicilio",
+}
+# Redactados para encajar tras "lo rechazamos porque ..." (ver _documentos_pendientes).
+_REJECTION_ES = {
+    RejectionReason.ILLEGIBLE: "no se leia con claridad",
+    RejectionReason.TYPE_MISMATCH: "no coincidia con el documento solicitado",
+    RejectionReason.EXPIRED: "estaba vencido",
+    RejectionReason.OTHER: "no era valido",
+}
+
+
+def _motivo_rechazo(db: Session, case_id, doc_type: str) -> str:
+    """Motivo (en espanol) del documento rechazado mas reciente de un tipo."""
+    doc = db.execute(
+        select(Document)
+        .where(
+            Document.case_file_id == case_id,
+            Document.active_flag == 1,
+            Document.status_code == DocStatus.REJECTED,
+            func.coalesce(Document.detected_type_code, Document.declared_type_code)
+            == doc_type,
+        )
+        .order_by(Document.reception_at.desc())
+    ).scalars().first()
+    if doc and doc.rejection_reason_code:
+        return _REJECTION_ES.get(doc.rejection_reason_code, "no era valido")
+    return "necesita revisarse"
+
+
+def _documentos_pendientes(db: Session, case: CaseFile) -> list[tuple[str, str]]:
+    """[(etiqueta, motivo)] de los documentos que el cliente debe enviar o reenviar.
+
+    Incluye los que faltan (PENDING), fueron rechazados (REJECTED) o vencieron
+    (EXPIRED); omite los ya recibidos/validados (no requieren accion del cliente).
+    """
+    items = db.execute(
+        select(CaseChecklistItem)
+        .where(
+            CaseChecklistItem.case_file_id == case.id,
+            CaseChecklistItem.active_flag == 1,
+        )
+        .order_by(CaseChecklistItem.created_at)
+    ).scalars()
+    pendientes: list[tuple[str, str]] = []
+    for item in items:
+        estado = item.status_code
+        if estado in (ChecklistStatus.VALIDATED, ChecklistStatus.RECEIVED):
+            continue
+        label = _DOC_TYPE_ES.get(item.document_type_code, item.document_type_code)
+        if estado == ChecklistStatus.REJECTED:
+            motivo = f"lo rechazamos porque {_motivo_rechazo(db, case.id, item.document_type_code)}"
+        elif estado == ChecklistStatus.EXPIRED:
+            motivo = "el que tenemos ya esta vencido"
+        else:  # PENDING
+            motivo = "aun no lo recibimos"
+        pendientes.append((label, motivo))
+    return pendientes
+
+
+def instrucciones_texto(db: Session, case: CaseFile) -> str:
+    nombre = (case.client_name or "").strip().split(" ")[0] or "cliente"
+    codigo = case.code
+    correo = settings.system_email
+    pendientes = _documentos_pendientes(db, case)
+
+    lineas = [f"Hola {nombre},", ""]
+
+    if not pendientes:
+        lineas += [
+            f"Ya recibimos todos los documentos de tu expediente {codigo}.",
+            "Por ahora no necesitas enviar nada mas; te avisaremos del siguiente paso.",
+            "",
+            "Gracias.",
+        ]
+        return "\n".join(lineas)
+
+    lineas.append(
+        f"Para continuar con tu expediente {codigo} todavia nos faltan estos documentos:"
     )
+    lineas.append("")
+    for label, motivo in pendientes:
+        lineas.append(f"  - {label} ({motivo})" if motivo else f"  - {label}")
+    lineas += [
+        "",
+        f"Envialos por correo a {correo} e incluye el codigo {codigo} en el asunto; "
+        "asi los asociamos a tu expediente automaticamente.",
+        "",
+        "Recomendaciones:",
+        "  - Adjunta cada documento en PDF o foto (max. 15 MB por archivo).",
+        "  - Puedes mandarlos todos en un solo correo o uno por uno.",
+        "",
+        "Gracias.",
+    ]
+    return "\n".join(lineas)
 
 
-def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> None:
-    # Stub de canal: aqui iria el envio real por WhatsApp/correo.
+def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> str:
+    """Envia las instrucciones por correo al cliente del expediente (Mailgun).
+
+    Devuelve el destinatario. Lanza ConflictError si el expediente no tiene correo
+    registrado o si el envio falla.
+    """
+    destinatario = (case.client_email or "").strip()
+    if not destinatario:
+        raise ConflictError("El expediente no tiene un correo registrado")
+    cuerpo = instrucciones_texto(db, case)
+    if not email.send_email(destinatario, case.code, cuerpo):
+        raise ConflictError("No se pudo enviar el correo")
     registrar_evento(
         db, case.id, EventType.INSTRUCTIONS_RESENT,
-        "Instrucciones reenviadas al cliente",
+        f"Instrucciones reenviadas por correo a {destinatario}",
         actor=user.email, actor_user_id=user.id,
     )
+    return destinatario
