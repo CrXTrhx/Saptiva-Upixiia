@@ -196,22 +196,31 @@ function InstruccionesContent() {
   const mensaje = useMemo(() => {
     if (!expediente) return "";
     const primerNombre = expediente.clienteNombre?.split(" ")[0] ?? "";
+    const codigo = expediente.codigo;
     return [
       `Hola ${primerNombre},`,
       "",
-      `Tu expediente ha sido creado con el código ${expediente.codigo}.`,
+      `Tu expediente ha sido creado con el código ${codigo}.`,
       "",
-      "Para continuar con el proceso, necesitamos que nos envíes los siguientes documentos:",
+      "Para continuar con el proceso, necesitamos los siguientes documentos:",
       "• INE (frente y vuelta)",
       "• CURP",
-      "• Constancia de Situación Fiscal (CSF)",
+      "• Constancia de Situación Fiscal",
       "• Comprobante de domicilio",
       "",
-      "Puedes enviarlos por cualquiera de estos medios:",
-      `📱 WhatsApp: ${configSistema.whatsappSistema}`,
-      `📧 Correo: ${configSistema.correoSistema}`,
+      "📧 Envíalos por correo a:",
+      `   ${configSistema.correoSistema}`,
       "",
-      `Incluye tu código de expediente (${expediente.codigo}) en el mensaje para que podamos identificar tu documentación.`,
+      "Sigue estas instrucciones para que podamos procesarlos automáticamente:",
+      `   • Asunto del correo: ${codigo}`,
+      `   • En el cuerpo, escribe tu nombre y tu código ${codigo}`,
+      "   • Adjunta los documentos en PDF o foto (máx. 15 MB por archivo)",
+      "   • Puedes mandar todo en un solo correo o uno por documento",
+      "",
+      `📱 También puedes enviarlos por WhatsApp: ${configSistema.whatsappSistema}`,
+      `   (incluye tu código ${codigo} en el mensaje)`,
+      "",
+      `Es muy importante incluir el código ${codigo} para identificar tu documentación.`,
       "",
       "¡Gracias!",
     ].join("\n");

@@ -226,7 +226,7 @@ def validar_documento(db: Session, doc: Document, user: AppUser) -> Document:
     doc.validated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item:
         item.status_code = ChecklistStatus.VALIDATED
@@ -253,7 +253,7 @@ def rechazar_documento(
     doc.is_auto_rejected = 0
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item and item.current_document_id == doc.id:
         item.status_code = ChecklistStatus.REJECTED
@@ -283,7 +283,7 @@ def revertir_rechazo(db: Session, doc: Document, user: AppUser) -> Document:
     doc.is_auto_rejected = 0
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item and item.status_code != ChecklistStatus.VALIDATED:
         item.status_code = ChecklistStatus.RECEIVED

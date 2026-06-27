@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     # Datos del sistema (instrucciones al cliente)
     system_whatsapp: str = "+52 55 0000 0000"
-    system_email: str = "documentos@centur.com"
+    system_email: str = "documentos@mg.digitalfoldr.com"
 
     # Storage
     storage_backend: str = "local"  # local | r2
@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     sinch_api_token: str = ""
     sinch_webhook_secret: str = ""
     email_webhook_secret: str = ""
+    # Correo (Mailgun): envio saliente (confirmaciones) + recepcion de documentos.
+    mailgun_api_key: str = ""             # Private API key de Mailgun
+    mailgun_domain: str = ""              # mg.digitalfoldr.com
+    mailgun_base_url: str = "https://api.mailgun.net"  # region EU: https://api.eu.mailgun.net
+    mailgun_signing_key: str = ""         # HTTP webhook signing key (valida correos entrantes)
+    mail_from: str = ""                   # "Upiixia <noreply@mg.digitalfoldr.com>"
     anthropic_api_key: str = ""
     llm_use_real: bool = False
     extraction_confidence_threshold: float = 70.0
