@@ -169,18 +169,17 @@ def list_expedientes(
     cases = list(db.execute(stmt).scalars())
 
     if doc_faltante:
-        cases = [
-            c
-            for c in cases
-            if doc_faltante in serializers.documentos_faltantes(db, c.id)
-        ]
+        falt_map = serializers.documentos_faltantes_map(db, [c.id for c in cases])
+        cases = [c for c in cases if doc_faltante in falt_map.get(c.id, [])]
 
-    cases.sort(key=lambda c: (_prioridad(db, c), c.created_at))
+    # Una sola query batch para la ultima actividad (antes era 1 por caso en el sort).
+    ultima_map = serializers.ultima_actividad_map(db, [c.id for c in cases])
+    cases.sort(key=lambda c: (_prioridad(case=c, ultima_map=ultima_map), c.created_at))
     return cases
 
 
-def _prioridad(db: Session, case: CaseFile) -> int:
-    ultima = serializers._ultima_actividad(db, case)
+def _prioridad(*, case: CaseFile, ultima_map: dict) -> int:
+    ultima = serializers.ultima_actividad_de(case, ultima_map)
     now = dt.datetime.now(dt.timezone.utc)
     inactivo = ultima is not None and (now - ultima) > _INACTIVIDAD
     if inactivo and case.status_code in (CaseStatus.CAPTURING, CaseStatus.RECEIVING):

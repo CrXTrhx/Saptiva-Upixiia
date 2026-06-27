@@ -50,7 +50,7 @@ def listar_expedientes(
     cases = service.list_expedientes(
         db, search=search, estado=estado, desde=desde, hasta=hasta, doc_faltante=doc_faltante
     )
-    return [serializers.serialize_expediente(db, c) for c in cases]
+    return serializers.serialize_expedientes_bulk(db, cases)
 
 
 @router.get("/expedientes/{case_id}")

@@ -33,13 +33,14 @@ def set_audit_user(db: Session, user_id: str | None, user_label: str | None) -> 
     quien hizo el cambio. Debe llamarse dentro de la transaccion que hara los
     escrituras (antes del commit).
     """
+    # Un solo round-trip: ambos set_config (is_local=true) en una sola sentencia
+    # (antes eran 2 queries separadas = 2 round-trips por request).
     db.execute(
-        text("SELECT set_config('app.current_user_id', :uid, true)"),
-        {"uid": str(user_id) if user_id else ""},
-    )
-    db.execute(
-        text("SELECT set_config('app.current_user_label', :lbl, true)"),
-        {"lbl": user_label or "system"},
+        text(
+            "SELECT set_config('app.current_user_id', :uid, true),"
+            " set_config('app.current_user_label', :lbl, true)"
+        ),
+        {"uid": str(user_id) if user_id else "", "lbl": user_label or "system"},
     )
 
 
