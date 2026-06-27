@@ -83,7 +83,9 @@ def email_webhook(
         db, channel=Channel.EMAIL, sender=payload.sender,
         message_text=payload.text, content=content, file_name=name, mime_type=mime,
     )
-    if payload.sender:
+    # Solo acusamos recibo si el documento se asigno a un expediente valido. Si fue a
+    # huerfanos (sin codigo o codigo inexistente), no se responde nada al remitente.
+    if payload.sender and result["status"] == "assigned":
         email_client.send_email(payload.sender, "Documento recibido", result["reply"])
     return result
 
