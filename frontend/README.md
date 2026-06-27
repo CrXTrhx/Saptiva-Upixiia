@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# digitalfoldr — Frontend
 
-## Getting Started
+Interfaz web del sistema de onboarding AML, construida con **Next.js 16 + React 19 + TypeScript + Tailwind CSS v4**.
 
-First, run the development server:
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+
+---
+
+## Requisitos
+
+- Node.js 20+
+- El backend corriendo en `http://localhost:4000` (ver [`docker-compose.yml`](../docker-compose.yml) en la raíz)
+
+---
+
+## Instalación y desarrollo
 
 ```bash
+# Desde la raíz del monorepo:
+cd frontend
+
+npm install
+
+# Configura las variables de entorno
+cp .env.example .env.local
+# Edita .env.local si el backend corre en otro puerto/host
+
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Variables de entorno
 
-## Learn More
+| Variable | Valor por defecto | Descripción |
+|----------|------------------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:4000/api` | URL base del backend |
+| `NEXT_PUBLIC_SYSTEM_EMAIL` | `documentos@mg.digitalfoldr.com` | Correo al que el cliente envía docs |
+| `NEXT_PUBLIC_SYSTEM_WHATSAPP` | `+52 55 0000 0000` | WhatsApp del sistema |
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run dev      # Servidor de desarrollo con hot-reload
+npm run build    # Build de producción
+npm run start    # Sirve el build de producción
+npm run lint     # ESLint
+```
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Páginas
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Ruta | Descripción |
+|------|-------------|
+| `/login` | Autenticación JWT |
+| `/dashboard` | Lista de expedientes con filtros y conteos |
+| `/expedientes/[id]` | Detalle: checklist, documentos, historial, notas |
+| `/expedientes/[id]/instrucciones` | Texto de instrucciones para el cliente |
+| `/expedientes/nuevo` | Formulario de nueva venta |
+| `/nueva-venta` | Flujo alternativo de nueva venta |
+| `/huerfanos` | Cola de documentos sin expediente |
+
+---
+
+## Estructura
+
+```
+frontend/
+├── app/                    # App Router de Next.js
+│   ├── layout.tsx          # Layout raíz con AuthProvider
+│   ├── page.tsx            # Redirect a /dashboard o /login
+│   ├── login/
+│   ├── dashboard/
+│   ├── expedientes/[id]/
+│   ├── nueva-venta/
+│   └── huerfanos/
+├── context/
+│   └── AuthContext.tsx     # Estado de sesión + token JWT
+├── lib/
+│   ├── api.ts              # Helpers de fetch con auth header
+│   ├── apiClient.ts        # Cliente HTTP centralizado
+│   ├── types.ts            # Tipos compartidos
+│   ├── reglas-negocio.ts   # Lógica de next-steps y validaciones del cliente
+│   └── status.ts           # Labels y colores de estados
+└── services/
+    ├── authService.ts
+    ├── expedientesService.ts
+    └── huerfanosService.ts
+```
+
+---
+
+## Deploy
+
+El frontend puede deployarse en **Vercel** o **Render**.
+
+**Vercel (recomendado):**
+
+```bash
+# Desde la raíz del repo en Vercel, configura:
+# Root Directory: frontend
+# Build Command: npm run build
+# Output Directory: .next
+```
+
+Variables de entorno en Vercel:
+- `NEXT_PUBLIC_API_URL=https://<tu-backend>.onrender.com/api`
+- `NEXT_PUBLIC_SYSTEM_EMAIL=documentos@mg.digitalfoldr.com`
+- `NEXT_PUBLIC_SYSTEM_WHATSAPP=+52 55 0000 0000`
+
+> Después de deployar el frontend, agrega su dominio a `CORS_ORIGINS` en el backend (ver [`../backend/DEPLOY_RENDER.md`](../backend/DEPLOY_RENDER.md)).
+
+---
+
+## Notas de la versión de Next.js
+
+Este proyecto usa **Next.js 16** con el App Router. Las APIs y convenciones de esta versión pueden diferir de versiones anteriores — revisar la documentación oficial antes de agregar código nuevo.
