@@ -247,24 +247,21 @@ export default function ClienteDetalle({
                 type="button"
                 onClick={onBack}
                 aria-label="Volver al dashboard"
-                className="transition-colors cursor-pointer"
-                style={{ color: COLOR.muted2 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = COLOR.text)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = COLOR.muted2)}
+                className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+                style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#D1D5DB";
+                  e.currentTarget.style.color = COLOR.text;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#E5E7EB";
+                  e.currentTarget.style.color = "#4B5563";
+                }}
               >
                 <ArrowLeft size={16} />
+                <span>Dashboard</span>
+                <ChevronRight size={11} style={{ color: COLOR.faint }} />
               </button>
-              <button
-                type="button"
-                onClick={onBack}
-                className="cursor-pointer transition-colors"
-                style={{ color: COLOR.muted }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = COLOR.text)}
-                onMouseLeave={(e) => (e.currentTarget.style.color = COLOR.muted)}
-              >
-                Dashboard
-              </button>
-              <ChevronRight size={14} style={{ color: COLOR.faint }} />
               <span className="font-medium" style={{ color: COLOR.text }}>
                 {cliente?.nombre ?? "—"}
               </span>

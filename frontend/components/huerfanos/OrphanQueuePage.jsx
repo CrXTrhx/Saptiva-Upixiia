@@ -860,19 +860,23 @@ export default function OrphanQueuePage({
               <button
                 type="button"
                 onClick={handleVolverDashboard}
-                className="transition-colors"
-                style={{ color: "#9CA3AF" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#111827")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#9CA3AF")}
-                aria-label="Volver"
+                className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+                style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#D1D5DB";
+                  e.currentTarget.style.color = "#111827";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#E5E7EB";
+                  e.currentTarget.style.color = "#4B5563";
+                }}
+                aria-label="Volver al dashboard"
               >
                 <ArrowLeft size={16} />
-              </button>
-              <nav className="flex items-center gap-1.5 text-[12px]" aria-label="Breadcrumb">
-                <span style={{ color: "#9CA3AF" }}>Dashboard</span>
+                <span>Dashboard</span>
                 <ChevronRight size={11} style={{ color: "#D1D5DB" }} />
-                <span className="font-medium" style={{ color: "#111827" }}>Cola de Huérfanos</span>
-              </nav>
+              </button>
+              <span className="text-[12px] text-[#6B7280]">Cola de Huérfanos</span>
             </div>
 
             <button
