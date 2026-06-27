@@ -1,13 +1,14 @@
 """Serializadores: ORM -> dicts camelCase con codigos en ingles (contrato frontend)."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.codes import (
     EVENT_TONE,
     ChecklistStatus,
     DocStatus,
+    NextStepStatus,
 )
 from app.integrations import storage
 from app.models import (
@@ -17,6 +18,7 @@ from app.models import (
     CaseFile,
     Document,
     InternalNote,
+    NextStep,
 )
 from app.modules.expedientes import next_steps as ns
 from app.schemas.base import iso
@@ -55,8 +57,17 @@ def documentos_faltantes(db: Session, case_id) -> list[str]:
     return [i.document_type_code for i in items if i.status_code in _MISSING_CHECKLIST]
 
 
-def serialize_expediente(db: Session, case: CaseFile) -> dict:
-    """Item de lista (tipo Expediente del frontend)."""
+def _build_expediente_dict(
+    case: CaseFile,
+    *,
+    next_prio: str,
+    capturista: str,
+    faltantes: list[str],
+    ultima,
+) -> dict:
+    """Arma el dict de un expediente (item de lista). Funcion PURA (sin BD): la
+    usan tanto serialize_expediente (single) como serialize_expedientes_bulk para
+    garantizar salida identica."""
     return {
         "id": str(case.id),
         "codigo": case.code,
@@ -68,14 +79,137 @@ def serialize_expediente(db: Session, case: CaseFile) -> dict:
         "estado": case.status_code,
         "montoEstimado": float(case.estimated_amount),
         "tipoOperacion": case.operation_type_code,
-        "nextStepPrioritario": ns.prioritario(db, case.id),
-        "capturista": _capturista_nombre(db, case),
-        "documentosFaltantes": documentos_faltantes(db, case.id),
-        "ultimaActividad": iso(_ultima_actividad(db, case)),
+        "nextStepPrioritario": next_prio,
+        "capturista": capturista,
+        "documentosFaltantes": faltantes,
+        "ultimaActividad": iso(ultima),
     }
 
 
-def serialize_documento(db: Session, doc: Document, with_version: bool = True) -> dict:
+def serialize_expediente(db: Session, case: CaseFile) -> dict:
+    """Item de lista (tipo Expediente del frontend). Version de un solo caso."""
+    return _build_expediente_dict(
+        case,
+        next_prio=ns.prioritario(db, case.id),
+        capturista=_capturista_nombre(db, case),
+        faltantes=documentos_faltantes(db, case.id),
+        ultima=_ultima_actividad(db, case),
+    )
+
+
+# --- Serializacion en lote (sin N+1): la lista de expedientes precalcula 4 mapas
+#     en ~4 queries set-based, en vez de ~4 queries POR caso. Salida identica. -----
+
+def ultima_actividad_map(db: Session, case_ids: list) -> dict:
+    """{case_id: ultimo event_at} (1 query). Sin entrada si el caso no tiene eventos."""
+    if not case_ids:
+        return {}
+    rows = db.execute(
+        select(CaseEvent.case_file_id, func.max(CaseEvent.event_at))
+        .where(CaseEvent.case_file_id.in_(case_ids), CaseEvent.active_flag == 1)
+        .group_by(CaseEvent.case_file_id)
+    ).all()
+    return {cid: last for cid, last in rows}
+
+
+def ultima_actividad_de(case: CaseFile, ultima_map: dict):
+    """Mismo fallback que _ultima_actividad pero usando el mapa batch."""
+    return ultima_map.get(case.id) or case.updated_at or case.created_at
+
+
+def documentos_faltantes_map(db: Session, case_ids: list) -> dict:
+    """{case_id: [document_type_code faltantes]} (1 query)."""
+    if not case_ids:
+        return {}
+    rows = db.execute(
+        select(
+            CaseChecklistItem.case_file_id,
+            CaseChecklistItem.document_type_code,
+            CaseChecklistItem.status_code,
+        )
+        .where(
+            CaseChecklistItem.case_file_id.in_(case_ids),
+            CaseChecklistItem.active_flag == 1,
+        )
+    ).all()
+    out: dict = {}
+    for cid, doc_type, status in rows:
+        if status in _MISSING_CHECKLIST:
+            out.setdefault(cid, []).append(doc_type)
+    return out
+
+
+def _capturistas_map(db: Session, user_ids: list) -> dict:
+    """{user_id: full_name} (1 query). Sin filtro de active_flag (como db.get)."""
+    if not user_ids:
+        return {}
+    rows = db.execute(
+        select(AppUser.id, AppUser.full_name).where(AppUser.id.in_(user_ids))
+    ).all()
+    return {uid: name for uid, name in rows}
+
+
+def _next_prio_map(db: Session, case_ids: list) -> dict:
+    """{case_id: descripcion del next step prioritario} (1 query). Mismo orden que
+    next_steps.pending_steps (PRIORITY_ORDER, luego created_at)."""
+    if not case_ids:
+        return {}
+    rows = list(
+        db.execute(
+            select(NextStep).where(
+                NextStep.case_file_id.in_(case_ids),
+                NextStep.active_flag == 1,
+                NextStep.status_code == NextStepStatus.PENDING,
+            )
+        ).scalars()
+    )
+    grouped: dict = {}
+    for s in rows:
+        grouped.setdefault(s.case_file_id, []).append(s)
+    out: dict = {}
+    for cid, steps in grouped.items():
+        steps.sort(key=lambda s: (ns.PRIORITY_ORDER.get(s.priority_code, 9), s.created_at))
+        out[cid] = steps[0].description
+    return out
+
+
+def serialize_expedientes_bulk(db: Session, cases: list[CaseFile]) -> list[dict]:
+    """Serializa una lista de expedientes con ~4 queries batch (sin N+1). Produce
+    el MISMO dict por caso que serialize_expediente."""
+    if not cases:
+        return []
+    case_ids = [c.id for c in cases]
+    user_ids = list({c.assigned_user_id for c in cases if c.assigned_user_id})
+
+    cap_map = _capturistas_map(db, user_ids)
+    falt_map = documentos_faltantes_map(db, case_ids)
+    prio_map = _next_prio_map(db, case_ids)
+    ult_map = ultima_actividad_map(db, case_ids)
+
+    result = []
+    for c in cases:
+        if c.assigned_user_id and c.assigned_user_id in cap_map:
+            capturista = cap_map[c.assigned_user_id]
+        else:
+            capturista = "Sin asignar"
+        result.append(
+            _build_expediente_dict(
+                c,
+                next_prio=prio_map.get(c.id, "Sin acciones pendientes"),
+                capturista=capturista,
+                faltantes=falt_map.get(c.id, []),
+                ultima=ultima_actividad_de(c, ult_map),
+            )
+        )
+    return result
+
+
+def serialize_documento(
+    db: Session,
+    doc: Document,
+    with_version: bool = True,
+    prev_map: dict | None = None,
+) -> dict:
     motivo = None
     if doc.rejection_reason_code:
         motivo = {
@@ -87,11 +221,15 @@ def serialize_documento(db: Session, doc: Document, with_version: bool = True) -
         # La version anterior es el documento que fue reemplazado por este.
         # Tras una restauracion puede existir mas de un candidato (cadena de
         # reemplazos): tomamos el mas reciente para mostrar SOLO un nivel atras.
-        prev = db.execute(
-            select(Document)
-            .where(Document.replaced_by_id == doc.id)
-            .order_by(Document.reception_at.desc())
-        ).scalars().first()
+        # Si se pasa prev_map (precalculado en lote), se evita la query por-doc.
+        if prev_map is not None:
+            prev = prev_map.get(doc.id)
+        else:
+            prev = db.execute(
+                select(Document)
+                .where(Document.replaced_by_id == doc.id)
+                .order_by(Document.reception_at.desc())
+            ).scalars().first()
         if prev:
             version_anterior = serialize_documento(db, prev, with_version=False)
 
@@ -138,12 +276,19 @@ def serialize_evento(ev: CaseEvent) -> dict:
     }
 
 
-def serialize_nota(db: Session, nota: InternalNote) -> dict:
-    autor = db.get(AppUser, nota.author_id)
+def serialize_nota(
+    db: Session, nota: InternalNote, autor_map: dict | None = None
+) -> dict:
+    # autor_map (precalculado en lote) evita un db.get por nota.
+    if autor_map is not None:
+        autor_nombre = autor_map[nota.author_id] if nota.author_id in autor_map else "Interno"
+    else:
+        autor = db.get(AppUser, nota.author_id)
+        autor_nombre = autor.full_name if autor else "Interno"
     return {
         "id": str(nota.id),
         "texto": nota.body,
-        "autor": autor.full_name if autor else "Interno",
+        "autor": autor_nombre,
         "timestamp": iso(nota.created_at),
     }
 
@@ -194,11 +339,34 @@ def serialize_detalle(db: Session, case: CaseFile) -> dict:
         ).scalars()
     )
 
+    # Batch de los N+1 internos del detalle:
+    #  - versiones anteriores de los documentos (1 query, antes 1 por doc)
+    #  - autores de las notas (1 query, antes 1 por nota)
+    doc_ids = [d.id for d in docs]
+    prev_map: dict = {}
+    if doc_ids:
+        for p in db.execute(
+            select(Document)
+            .where(Document.replaced_by_id.in_(doc_ids))
+            .order_by(Document.reception_at.desc())
+        ).scalars():
+            prev_map.setdefault(p.replaced_by_id, p)  # desc -> el primero es el mas reciente
+
+    autor_ids = list({n.author_id for n in notas if n.author_id})
+    autor_map: dict = {}
+    if autor_ids:
+        autor_map = {
+            uid: name
+            for uid, name in db.execute(
+                select(AppUser.id, AppUser.full_name).where(AppUser.id.in_(autor_ids))
+            ).all()
+        }
+
     return {
         "expediente": base,
         "checklist": [serialize_checklist_item(i) for i in checklist],
-        "documentos": [serialize_documento(db, d) for d in docs],
+        "documentos": [serialize_documento(db, d, prev_map=prev_map) for d in docs],
         "nextSteps": [serialize_next_step(s) for s in ns.pending_steps(db, case.id)],
         "historial": [serialize_evento(e) for e in eventos],
-        "notas": [serialize_nota(db, n) for n in notas],
+        "notas": [serialize_nota(db, n, autor_map=autor_map) for n in notas],
     }

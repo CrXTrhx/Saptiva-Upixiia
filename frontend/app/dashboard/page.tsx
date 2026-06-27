@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -10,7 +10,7 @@ import { TablaExpedientes } from "@/components/dashboard/TablaExpedientes";
 import { TablaClientes } from "@/components/dashboard/TablaClientes";
 import { VistaToggle, type VistaDashboard } from "@/components/dashboard/VistaToggle";
 import ClienteDetalle from "@/components/dashboard/ClienteDetalle";
-import { expedientesService } from "@/services/expedientesService";
+import { expedientesService, agruparPorCliente } from "@/services/expedientesService";
 import type {
   ClienteAgrupado,
   ConteoEstados,
@@ -30,7 +30,6 @@ function DashboardContent() {
   const router = useRouter();
   const [conteos, setConteos] = useState<ConteoEstados | null>(null);
   const [expedientes, setExpedientes] = useState<Expediente[]>([]);
-  const [clientes, setClientes] = useState<ClienteAgrupado[]>([]);
   const [huerfanos, setHuerfanos] = useState<number | null>(null);
   const [query, setQuery] = useState<ExpedienteQuery>({});
   const [activeView, setActiveView] = useState<VistaDashboard>("cliente");
@@ -46,28 +45,24 @@ function DashboardContent() {
     expedientesService.getHuerfanosPendientes().then(setHuerfanos);
   }, []);
 
+  // Un solo fetch de la lista por `query`. La vista "Por cliente" se deriva en memoria
+  // (agruparPorCliente), así alternar de vista NO vuelve a pedir datos al backend.
   useEffect(() => {
     let cancelled = false;
     setLoadingTable(true);
 
-    if (activeView === "cliente") {
-      expedientesService.getClientesAgrupados(query).then((data) => {
-        if (cancelled) return;
-        setClientes(data);
-        setLoadingTable(false);
-      });
-    } else {
-      expedientesService.getExpedientes(query).then((data) => {
-        if (cancelled) return;
-        setExpedientes(data);
-        setLoadingTable(false);
-      });
-    }
+    expedientesService.getExpedientes(query).then((data) => {
+      if (cancelled) return;
+      setExpedientes(data);
+      setLoadingTable(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [query, activeView]);
+  }, [query]);
+
+  const clientes = useMemo(() => agruparPorCliente(expedientes), [expedientes]);
 
   const handleQueryChange = useCallback((next: ExpedienteQuery) => {
     setQuery(next);
