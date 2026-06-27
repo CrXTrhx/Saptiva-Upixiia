@@ -1,12 +1,16 @@
 "use client";
 
-import { type FormEvent, useCallback, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, Loader2, Sparkles } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { expedientesService } from "@/services/expedientesService";
+import {
+  peekNuevaVentaPrefill,
+  clearNuevaVentaPrefill,
+} from "@/lib/nueva-venta-handoff";
 import {
   validateForm,
   validateField,
@@ -136,7 +140,27 @@ export default function NuevaVentaPage() {
 function NuevaVentaContent() {
   const router = useRouter();
 
-  const [values, setValues] = useState<NuevaVentaFormValues>(INITIAL_VALUES);
+  // Prefill desde P6 (Cola de Huérfanos). peek = lee sin consumir (seguro para el
+  // inicializador). Se limpia al montar para que una visita manual quede en blanco.
+  const prefill = useMemo(() => peekNuevaVentaPrefill(), []);
+  const documentoOrigen = prefill?.documentoOrigen ?? null;
+
+  useEffect(() => {
+    clearNuevaVentaPrefill();
+  }, []);
+
+  const [values, setValues] = useState<NuevaVentaFormValues>(() =>
+    prefill
+      ? {
+          clienteNombre: prefill.nombreCliente || "",
+          clienteTelefono: prefill.telefono || "",
+          clienteCorreo: prefill.correo || "",
+          clienteRfc: prefill.rfc || "",
+          montoEstimado: prefill.montoEstimado || "",
+          tipoOperacion: prefill.tipoOperacion || "",
+        }
+      : INITIAL_VALUES,
+  );
   const [touched, setTouched] = useState<
     Partial<Record<keyof NuevaVentaFormValues, true>>
   >({});
@@ -235,6 +259,15 @@ function NuevaVentaContent() {
     try {
       const exp = await expedientesService.createExpediente(result.data);
       setStatus("success");
+      // Si viene de un documento huérfano, conservar el origen para el historial
+      // de P5 (evento creacion_desde_huerfano). En real lo registra el service.
+      if (documentoOrigen) {
+        console.log("Evento historial:", {
+          tipo: "creacion_desde_huerfano",
+          descripcion: `Expediente creado desde documento huérfano ${documentoOrigen.archivo}`,
+          documentoOrigen,
+        });
+      }
       router.push(`/expedientes/${exp.id}/instrucciones`);
     } catch (err) {
       setStatus("error");
@@ -294,6 +327,57 @@ function NuevaVentaContent() {
             Captura los datos iniciales para crear un expediente
           </p>
         </div>
+
+        {/* Banner: datos cargados desde documento huérfano */}
+        {documentoOrigen && (
+          <div className="mb-6 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent-light)] p-4">
+            <div className="flex items-center gap-2">
+              <Sparkles
+                size={14}
+                className="text-[var(--color-accent-text-dark)]"
+                strokeWidth={2}
+              />
+              <p className="text-sm font-medium text-[var(--color-accent-text-dark)]">
+                Datos cargados desde documento huérfano
+              </p>
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
+              <div>
+                <dt className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+                  Archivo origen
+                </dt>
+                <dd className="flex items-center gap-1 text-xs font-medium text-[var(--color-text)]">
+                  <FileText size={11} className="text-[var(--color-muted)]" />
+                  <span className="truncate">{documentoOrigen.archivo}</span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+                  Tipo detectado
+                </dt>
+                <dd className="text-xs font-medium text-[var(--color-text)]">
+                  {documentoOrigen.tipoDetectado}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+                  Canal
+                </dt>
+                <dd className="text-xs font-medium text-[var(--color-text)]">
+                  {documentoOrigen.canal}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+                  Remitente
+                </dt>
+                <dd className="truncate text-xs font-medium text-[var(--color-text)]">
+                  {documentoOrigen.remitente}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        )}
 
         {/* Grid layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -471,8 +555,8 @@ function NuevaVentaContent() {
                     <option value="" disabled>
                       Seleccionar...
                     </option>
-                    <option value="blindaje">Blindaje</option>
-                    <option value="venta_vehiculo">Venta de vehículo</option>
+                    <option value="ARMORING">Blindaje</option>
+                    <option value="VEHICLE_SALE">Venta de vehículo</option>
                   </select>
                 </Field>
 
@@ -551,7 +635,7 @@ function NuevaVentaContent() {
                 )}
               </p>
               <div className="mt-2.5">
-                <StatusBadge estado="en_captura" />
+                <StatusBadge estado="CAPTURING" />
               </div>
             </div>
 
@@ -563,7 +647,7 @@ function NuevaVentaContent() {
               <p className="text-xs text-[var(--color-muted)] mb-5">
                 El expediente se creará en estado{" "}
                 <code className="font-mono text-[var(--color-text-secondary)]">
-                  en_captura
+                  en captura
                 </code>{" "}
                 y podrás enviar instrucciones al cliente.
               </p>

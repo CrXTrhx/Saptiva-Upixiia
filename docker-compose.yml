@@ -1,0 +1,65 @@
+# Levanta el backend listo para probar: PostgreSQL 16 + API FastAPI.
+# Uso:  docker compose up --build
+# API:  http://localhost:4000/health  y  http://localhost:4000/docs
+#
+# El frontend (Next.js) se corre aparte con `npm run dev` apuntando a
+# NEXT_PUBLIC_API_URL=http://localhost:4000/api  (ver nota al final).
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: saptiva
+      POSTGRES_PASSWORD: saptiva
+      POSTGRES_DB: saptiva_aml
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # En el PRIMER arranque carga el esquema completo automaticamente.
+      - ./database/schema/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saptiva -d saptiva_aml"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    # Carga las llaves de Document AI (GCP_PROJECT_ID, DOCAI_*, etc.) desde el .env.
+    # Las variables de `environment` de abajo tienen PRECEDENCIA sobre el .env, asi que
+    # la BD y el storage siguen siendo los del compose (no los del .env real).
+    env_file:
+      - ./backend/.env
+    environment:
+      # Conexion a la BD del compose (el backend la normaliza a psycopg3).
+      DATABASE_URL: postgresql://saptiva:saptiva@db:5432/saptiva_aml
+      # Ruta DENTRO del contenedor al JSON del service account (se monta abajo).
+      # Sobrescribe la ruta del host que viene en el .env.
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-credentials.json
+      # Auth / admin sembrado por el entrypoint.
+      JWT_SECRET: dev-secret-cambia-esto
+      JWT_EXPIRE_MINUTES: "480"
+      ADMIN_EMAIL: admin@centur.com
+      ADMIN_PASSWORD: admin123
+      ADMIN_NAME: Administrador
+      # CORS para el frontend en dev.
+      CORS_ORIGINS: http://localhost:3000
+      # Storage local servido en /files (no requiere R2 para probar).
+      STORAGE_BACKEND: local
+      API_PUBLIC_URL: http://localhost:4000
+      # LLM e integraciones en modo stub.
+      LLM_USE_REAL: "false"
+    ports:
+      - "4000:4000"
+    volumes:
+      # Persiste los archivos subidos en local fuera del contenedor.
+      - ./backend/storage_local:/app/storage_local
+      # Monta el JSON del service account de Google (solo lectura).
+      - /Users/cristophermolina/.config/centur/document-ai-service-account.json:/app/gcp-credentials.json:ro
+
+volumes:
+  pgdata:

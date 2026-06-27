@@ -20,6 +20,18 @@
   --color-error: #D64545;
   --color-error-bg: #FEF2F2;
   --color-error-text: #991B1B;
+  --color-success: #536648;
+  --color-success-bg: #ECF0E8;
+  --color-accent-text-dark: #A86518;
+  --color-slate-dot: #8C9AAD;
+  --color-slate-bg: #EBEEF2;
+  --color-slate-text: #4F5A6B;
+  --color-coral: #E07A5F;
+  --color-coral-bg: #FDF0ED;
+  --color-coral-text: #9B3922;
+  --color-amber: #D97706;
+  --color-amber-bg: #FEF3C7;
+  --color-amber-text: #92400E;
 
   --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --radius-sm: 0.5rem;
@@ -38,4 +50,21 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[fadeIn_150ms_ease-out\],
+  .animate-\[scaleIn_200ms_cubic-bezier\(0\.16\,1\,0\.3\,1\)\] {
+    animation: none !important;
+  }
 }

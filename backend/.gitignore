@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+storage_local/
+.pytest_cache/
+
+credentials/
+secrets/
+document-ai-service-account.json
+*-service-account.json
+google-credentials.json
