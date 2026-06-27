@@ -133,8 +133,11 @@ def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
     Asi todo documento entra a la cadena de versiones (replaced_by_id) sin importar
     si llego por upload normal, WhatsApp, email o reemplazo explicito.
 
-    Regla clave: si el nuevo doc es rechazado, solo desplaza otros rechazados
-    (no saca a un documento bueno). Si el nuevo es bueno, desplaza todo.
+    Regla clave: garantiza UNA sola card activa por tipo. El documento entrante
+    SIEMPRE desplaza al historico a las versiones previas del mismo tipo (esten
+    recibidas, validadas o rechazadas), sin importar si el entrante quedo recibido
+    o rechazado. La version anterior queda en el rastro (versionAnterior) y es
+    restaurable.
     """
     prev_cond = [
         Document.case_file_id == ctx.case.id,
@@ -144,8 +147,6 @@ def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
         Document.file_purged_at.is_(None),
         func.coalesce(Document.detected_type_code, Document.declared_type_code) == doc_type,
     ]
-    if ctx.rejected:
-        prev_cond.append(Document.status_code == DocStatus.REJECTED)
 
     prev_docs = list(ctx.db.execute(select(Document).where(*prev_cond)).scalars())
     for prev in prev_docs:
@@ -171,11 +172,13 @@ def actualizar_expediente(ctx: PipelineContext) -> None:
             .one_or_none()
         )
         if item:
-            if ctx.rejected:
-                item.status_code = ChecklistStatus.REJECTED
-            else:
-                item.status_code = ChecklistStatus.RECEIVED
-                item.current_document_id = doc.id
+            # El documento entrante es ahora la unica card activa del tipo; el
+            # checklist apunta a el (su estado refleja recibido/rechazado) para no
+            # quedar apuntando a una version que acaba de pasar a REPLACED.
+            item.current_document_id = doc.id
+            item.status_code = (
+                ChecklistStatus.REJECTED if ctx.rejected else ChecklistStatus.RECEIVED
+            )
             ctx.db.flush()
 
     if ctx.case.status_code == CaseStatus.CAPTURING:
