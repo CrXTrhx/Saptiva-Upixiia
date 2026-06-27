@@ -94,9 +94,12 @@ def instrucciones(
     case = service.get_case_or_404(db, case_id)
     return {
         "codigo": case.code,
+        "destinatario": case.client_email or "",
+        "remitente": settings.mail_from or settings.system_email,
+        "asunto": case.code,
         "whatsapp": settings.system_whatsapp,
         "correo": settings.system_email,
-        "texto": service.instrucciones_texto(case),
+        "texto": service.instrucciones_texto(db, case),
     }
 
 
