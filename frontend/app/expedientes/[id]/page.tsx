@@ -122,16 +122,16 @@ function Badge({ cfg, small }: { cfg: { dot: string; bg: string; text: string; l
   );
 }
 
-function Card({ children, className = "", delay = 0, hover = true, style }: {
+function Card({ children, className = "", hover = true, style }: {
   children: React.ReactNode; className?: string; delay?: number; hover?: boolean; style?: React.CSSProperties;
 }) {
   return (
     <motion.div
       className={`rounded-xl bg-white ${className}`}
       style={{ border: "1px solid #E5DED6", ...style }}
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay, ease: EASE_OUT }}
+      transition={{ duration: 0.2, ease: EASE_OUT }}
       whileHover={hover ? { y: -1, transition: { duration: 0.2 } } : undefined}
     >
       {children}
@@ -1203,14 +1203,14 @@ function DetalleContent() {
               <p className="text-[12px] text-center py-4" style={{ color: "#989396" }}>Sin pendientes</p>
             ) : (
               <div className="space-y-2.5">
-                {nextSteps.map((step, i) => {
+                {nextSteps.map((step) => {
                   const pcfg = prioridadConfig[step.prioridad];
                   return (
                     <motion.div
                       key={step.id}
                       initial={{ opacity: 0, x: 6 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.35, delay: 0.15 + i * 0.06, ease: EASE_OUT }}
+                      transition={{ duration: 0.2, ease: EASE_OUT }}
                       className="flex items-center gap-3 py-2.5 px-3 rounded-lg"
                       style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}
                     >

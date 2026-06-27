@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import type { Expediente } from "@/lib/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { usePaginacionRender } from "@/lib/usePaginacionRender";
+import { VerMasBtn } from "@/components/ui/VerMasBtn";
 
 const GRID_COLS = "160px 1.4fr 130px 150px 1.5fr 160px";
 
@@ -59,6 +61,8 @@ export function TablaExpedientes({
   hasFilters: boolean;
 }) {
   const router = useRouter();
+  const { mostrados, hayMas, restantes, verMas, pageSize } =
+    usePaginacionRender(expedientes, 15);
 
   function handleRowClick(id: string) {
     router.push(`/expedientes/${id}`);
@@ -102,7 +106,7 @@ export function TablaExpedientes({
           ) : expedientes.length === 0 ? (
             <EmptyState filtered={hasFilters} />
           ) : (
-            expedientes.map((exp) => {
+            mostrados.map((exp) => {
               const isVencido = exp.estado === "INCOMPLETE_EXPIRED";
               return (
                 <div
@@ -168,6 +172,9 @@ export function TablaExpedientes({
               );
             })
           )}
+          {!loading && hayMas && (
+            <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={verMas} />
+          )}
         </div>
 
         {/* Mobile (<640px) — compact cards */}
@@ -183,7 +190,7 @@ export function TablaExpedientes({
           ) : expedientes.length === 0 ? (
             <EmptyState filtered={hasFilters} />
           ) : (
-            expedientes.map((exp) => {
+            mostrados.map((exp) => {
               const isVencido = exp.estado === "INCOMPLETE_EXPIRED";
               return (
                 <div
@@ -221,6 +228,9 @@ export function TablaExpedientes({
                 </div>
               );
             })
+          )}
+          {!loading && hayMas && (
+            <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={verMas} />
           )}
         </div>
       </div>

@@ -42,6 +42,7 @@ import {
 import type { Estado, Expediente, TipoOperacion } from "@/lib/types";
 import { TIPO_OPERACION_LABEL } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
+import { usePaginacionRender } from "@/lib/usePaginacionRender";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
@@ -205,6 +206,10 @@ export default function ClienteDetalle({
   }, [lista, search, filterEstado, filterOperacion]);
 
   const hasFilters = !!(search.trim() || filterEstado || filterOperacion);
+
+  // Carga progresiva: no renderizamos los 40 de golpe; mostramos N y "Ver más".
+  const { mostrados, hayMas, restantes, verMas, pageSize } =
+    usePaginacionRender(filtrados, 12);
 
   function limpiarFiltros() {
     setSearch("");
@@ -485,17 +490,17 @@ export default function ClienteDetalle({
                 </div>
               ) : (
                 <AnimatePresence mode="popLayout">
-                  {filtrados.map((exp, i) => {
+                  {mostrados.map((exp, i) => {
                     const c = estadoCfg(exp.estado);
                     const vencido = exp.estado === "INCOMPLETE_EXPIRED";
                     return (
                       <motion.div
                         key={exp.id}
                         layout
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.25, delay: i * 0.03, ease: EASE_OUT }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15, ease: EASE_OUT }}
                         role="link"
                         tabIndex={0}
                         aria-label={`Ver expediente ${exp.codigo ?? ""}`}
@@ -511,7 +516,7 @@ export default function ClienteDetalle({
                           gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
                           gap: 16,
                           padding: "16px 24px",
-                          borderBottom: i === filtrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
+                          borderBottom: i === mostrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -548,6 +553,25 @@ export default function ClienteDetalle({
                     );
                   })}
                 </AnimatePresence>
+              )}
+              {hayMas && (
+                <div
+                  className="flex justify-center p-3"
+                  style={{ borderTop: `1px solid ${COLOR.borderInner}` }}
+                >
+                  <button
+                    type="button"
+                    onClick={verMas}
+                    className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-medium cursor-pointer transition-colors"
+                    style={{ backgroundColor: COLOR.surface, border: `1px solid ${COLOR.border}`, color: COLOR.text2 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = COLOR.surface)}
+                  >
+                    <ChevronDown size={14} />
+                    Ver {Math.min(pageSize, restantes)} más
+                    <span style={{ color: COLOR.muted2 }}>· {restantes} restantes</span>
+                  </button>
+                </div>
               )}
             </div>
           </>

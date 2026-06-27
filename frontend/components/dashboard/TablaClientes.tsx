@@ -1,9 +1,12 @@
 "use client";
 
+import { memo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import type { ClienteAgrupado } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
+import { usePaginacionRender } from "@/lib/usePaginacionRender";
+import { VerMasBtn } from "@/components/ui/VerMasBtn";
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
@@ -38,7 +41,7 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
-function ConteoChips({
+const ConteoChips = memo(function ConteoChips({
   conteo,
 }: {
   conteo: ClienteAgrupado["conteoPorEstado"];
@@ -64,7 +67,7 @@ function ConteoChips({
       })}
     </div>
   );
-}
+});
 
 function SkeletonRows() {
   return (
@@ -86,7 +89,7 @@ function SkeletonRows() {
   );
 }
 
-function ClienteRow({
+const ClienteRow = memo(function ClienteRow({
   cliente,
   onSelect,
 }: {
@@ -160,7 +163,7 @@ function ClienteRow({
       </div>
     </div>
   );
-}
+});
 
 export function TablaClientes({
   clientes,
@@ -174,6 +177,8 @@ export function TablaClientes({
   onSelectCliente: (cliente: ClienteAgrupado) => void;
 }) {
   const reduceMotion = useReducedMotion();
+  const { mostrados, hayMas, restantes, verMas, pageSize } =
+    usePaginacionRender(clientes, 15);
 
   return (
     <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
@@ -188,23 +193,22 @@ export function TablaClientes({
           </p>
         </div>
       ) : (
-        clientes.map((cliente, i) => (
-          <motion.div
-            key={cliente.id}
-            initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.2, delay: Math.min(i * 0.025, 0.2), ease: EASE_OUT }
-            }
-          >
-            <ClienteRow
-              cliente={cliente}
-              onSelect={onSelectCliente}
-            />
-          </motion.div>
-        ))
+        <>
+          {/* Fade rápido y sin cascada: el contenido aparece de golpe. */}
+          {mostrados.map((cliente) => (
+            <motion.div
+              key={cliente.id}
+              initial={reduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: reduceMotion ? 0 : 0.15, ease: EASE_OUT }}
+            >
+              <ClienteRow cliente={cliente} onSelect={onSelectCliente} />
+            </motion.div>
+          ))}
+          {hayMas && (
+            <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={verMas} />
+          )}
+        </>
       )}
     </section>
   );

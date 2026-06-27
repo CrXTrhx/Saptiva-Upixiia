@@ -221,6 +221,17 @@ export const expedientesService = {
     return data.count;
   },
 
+  // Resumen del dashboard: conteos + huérfanos pendientes en UNA sola request
+  // (antes eran 2 llamadas separadas en la carga inicial).
+  async getDashboardResumen(): Promise<{
+    conteos: ConteoEstados;
+    huerfanosPendientes: number;
+  }> {
+    return apiClient<{ conteos: ConteoEstados; huerfanosPendientes: number }>(
+      "/dashboard/resumen",
+    );
+  },
+
   // --- P5 Detail ---
   async getExpedienteDetalle(id: string): Promise<ExpedienteDetalle | null> {
     try {
