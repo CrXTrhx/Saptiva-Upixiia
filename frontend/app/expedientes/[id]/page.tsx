@@ -49,6 +49,7 @@ function localizarDescripcion(texto: string): string {
   return texto.replace(CODIGO_RE, (m) => CODIGO_A_ETIQUETA[m] ?? m);
 }
 import type {
+  ChecklistItem,
   ConsultaLLM,
   Documento,
   DocumentoRequerido,
@@ -57,10 +58,9 @@ import type {
   Evento,
   ExpedienteDetalle,
   MotivoRechazo,
+  NextStep,
   Nota,
   PrioridadNextStep,
-  ChecklistItem,
-  NextStep,
   Canal,
   TipoOperacion,
   TonoEvento,

@@ -22,9 +22,10 @@ export type NuevaVentaPrefill = {
   rfc: string;
   tipoOperacion: string;
   montoEstimado: string;
-  documentoOrigen?: DocumentoOrigen;
+  documentoOrigen?: DocumentoOrigen | null;
   returnTo?: string;
   lockedFields?: readonly string[];
+  clienteLock?: boolean;
 };
 
 let pending: NuevaVentaPrefill | null = null;

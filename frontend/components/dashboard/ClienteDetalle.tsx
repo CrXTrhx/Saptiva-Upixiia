@@ -100,12 +100,13 @@ export type ClienteLite = {
   nombre: string;
   telefono?: string;
   correo?: string;
-  rfc?: string;
+  rfc?: string | null;
 };
 
 type Props = {
   cliente: ClienteLite | null | undefined; // requerido en uso normal
   expedientes: Expediente[] | null | undefined; // SOLO los de este cliente
+  loading?: boolean; // expedientes del cliente cargándose (carga diferida)
   onBack: () => void; // host → vuelve a P2
   onAbrirExpediente: (exp: Expediente) => void; // host → navega a la P5 EXISTENTE
   onNuevaVenta?: (cliente: ClienteLite) => void; // host → navega a P3 existente
@@ -155,6 +156,7 @@ function primerNombre(nombre?: string): string {
 export default function ClienteDetalle({
   cliente,
   expedientes,
+  loading = false,
   onBack,
   onAbrirExpediente,
   onNuevaVenta,
@@ -479,7 +481,28 @@ export default function ClienteDetalle({
                 <div>Siguiente paso</div>
               </div>
 
-              {filtrados.length === 0 ? (
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="grid items-center animate-pulse"
+                    style={{
+                      gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
+                      gap: 16,
+                      padding: "16px 24px",
+                      borderBottom:
+                        i === 3 ? "none" : `1px solid ${COLOR.borderInner}`,
+                    }}
+                  >
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-5 w-20 rounded-full" style={{ backgroundColor: COLOR.border }} />
+                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                  </div>
+                ))
+              ) : filtrados.length === 0 ? (
                 <div className="px-5 py-16 text-center flex flex-col items-center gap-3">
                   <FileText size={26} style={{ color: COLOR.faint }} />
                   <p className="text-[13px]" style={{ color: COLOR.muted2 }}>

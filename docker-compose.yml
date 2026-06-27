@@ -49,7 +49,7 @@ services:
       # CORS para el frontend en dev.
       CORS_ORIGINS: http://localhost:3000
       # Storage local servido en /files (no requiere R2 para probar).
-      STORAGE_BACKEND: local
+      STORAGE_BACKEND: r2
       API_PUBLIC_URL: http://localhost:4000
       # LLM e integraciones en modo stub.
       LLM_USE_REAL: "false"
@@ -59,7 +59,7 @@ services:
       # Persiste los archivos subidos en local fuera del contenedor.
       - ./backend/storage_local:/app/storage_local
       # Monta el JSON del service account de Google (solo lectura).
-      - /Users/cristophermolina/.config/centur/document-ai-service-account.json:/app/gcp-credentials.json:ro
+      - ./backend/document-ai-service-account.json:/app/gcp-credentials.json:ro
 
 volumes:
   pgdata:

@@ -48,6 +48,26 @@ export const nuevaVentaSchema = z.object({
   }),
 });
 
+// Variante con RFC OBLIGATORIO: el RFC es la identidad del cliente (con él se
+// relacionan los expedientes), así que al crear una nueva venta es requerido. El
+// modal de edición sigue usando el schema base (RFC opcional) para no exigirlo a
+// expedientes antiguos sin RFC.
+export const nuevaVentaSchemaRfcRequerido = nuevaVentaSchema.extend({
+  clienteRfc: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(1, "Requerido")
+    .pipe(
+      z
+        .string()
+        .regex(
+          RFC_PERSONA_FISICA,
+          "RFC inválido (4 letras + 6 dígitos + 3 homoclave)",
+        ),
+    ),
+});
+
 export type NuevaVentaFormValues = {
   clienteNombre: string;
   clienteTelefono: string;
@@ -68,14 +88,22 @@ export const INITIAL_VALUES: NuevaVentaFormValues = {
 
 export type FieldErrors = Partial<Record<keyof NuevaVentaFormValues, string>>;
 
-export function validateForm(values: NuevaVentaFormValues): {
+type ValidateOptions = { rfcRequired?: boolean };
+
+export function validateForm(
+  values: NuevaVentaFormValues,
+  opts: ValidateOptions = {},
+): {
   success: true;
   data: z.output<typeof nuevaVentaSchema>;
 } | {
   success: false;
   errors: FieldErrors;
 } {
-  const result = nuevaVentaSchema.safeParse(values);
+  const schema = opts.rfcRequired
+    ? nuevaVentaSchemaRfcRequerido
+    : nuevaVentaSchema;
+  const result = schema.safeParse(values);
   if (result.success) {
     return { success: true, data: result.data };
   }
@@ -93,8 +121,9 @@ export function validateField(
   field: keyof NuevaVentaFormValues,
   value: string,
   allValues: NuevaVentaFormValues,
+  opts: ValidateOptions = {},
 ): string | undefined {
-  const result = validateForm({ ...allValues, [field]: value });
+  const result = validateForm({ ...allValues, [field]: value }, opts);
   if (result.success) return undefined;
   return result.errors[field];
 }
