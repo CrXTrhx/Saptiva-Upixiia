@@ -205,7 +205,7 @@ function InstruccionesContent() {
       "Para continuar con el proceso, necesitamos los siguientes documentos:",
       "• INE (frente y vuelta)",
       "• CURP",
-      "• Constancia de Situación Fiscal (CSF)",
+      "• Constancia de Situación Fiscal",
       "• Comprobante de domicilio",
       "",
       "📧 Envíalos por correo a:",

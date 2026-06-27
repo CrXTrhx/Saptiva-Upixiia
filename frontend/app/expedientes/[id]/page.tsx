@@ -373,7 +373,7 @@ function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]
 
   const csf = activeByTipo.get("TAX_STATUS_CERT");
   if (csf?.estado === "REJECTED") {
-    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "HIGH");
+    addStep("ns-csf-rechazado", "Solicitar nueva Constancia de Situación Fiscal al cliente (rechazada por vencimiento)", "HIGH");
   }
 
   const curp = activeByTipo.get("CURP");
@@ -533,11 +533,13 @@ function DetalleContent() {
   async function handleReemplazarDoc(docId: string, archivo: File) {
     if (!detalle) return;
     setModalLoading(true);
-    const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
     try {
-      const newDoc = await expedientesService.reemplazarDocumento(docId, archivo);
-      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
+      await expedientesService.reemplazarDocumento(docId, archivo);
+      // Refresca el estado real desde el backend: el documento entrante puede quedar
+      // recibido o rechazado, y el checklist/estado del expediente se recalculan. Asi
+      // evitamos parches optimistas que dejaban el slot en un estado incorrecto.
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
       setModal({ type: "none" }); showToast("Documento reemplazado");
     } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
   }
