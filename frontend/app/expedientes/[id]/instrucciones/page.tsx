@@ -522,6 +522,10 @@ function InstruccionesContent() {
                       value={expediente.clienteNombre}
                     />
                     <SummaryField
+                      label="Correo"
+                      value={expediente.clienteCorreo ?? "—"}
+                    />
+                    <SummaryField
                       label="Fecha de creación"
                       value={new Date(
                         expediente.fechaCreacion,
