@@ -26,7 +26,7 @@ def crear_huerfano(
     message_text: str | None,
 ) -> OrphanDocument:
     """Almacena el archivo, intenta extraer datos y propone un match."""
-    stored = storage.store(content, file_name, mime_type)
+    stored = storage.store(content, file_name, mime_type, prefix="huerfanos")
 
     extracted_curp = extracted_rfc = extracted_cp = None
     suggested_type = None

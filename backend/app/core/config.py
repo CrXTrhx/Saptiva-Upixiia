@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     # Storage
     storage_backend: str = "local"  # local | r2
+    # Retencion (en dias) de archivos temporales en R2 antes de que el cron los borre.
+    # reemplazos: versiones reemplazadas de 2+ niveles atras (conserva vigente + 1 anterior).
+    # other: documentos clasificados OTHER y rechazados (basura que no es ninguno de los 4 tipos).
+    retencion_reemplazos_dias: int = 7
+    retencion_other_dias: int = 7
     r2_account_id: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""

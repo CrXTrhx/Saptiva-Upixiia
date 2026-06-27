@@ -359,6 +359,7 @@ CREATE TABLE document (
     rejection_note       text,
     is_auto_rejected     smallint      NOT NULL DEFAULT 0 CHECK (is_auto_rejected IN (0,1)),
     replaced_by_id       uuid          REFERENCES document(id),             -- version que lo sustituye
+    file_purged_at       timestamptz,                                       -- cron borro el archivo de R2 (fila queda como auditoria)
     reception_at         timestamptz   NOT NULL DEFAULT now(),
     validated_by_id      uuid          REFERENCES app_user(id),
     validated_at         timestamptz,

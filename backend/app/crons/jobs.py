@@ -4,6 +4,8 @@ Uso (Railway cron / Task Scheduler):
     python -m app.crons.jobs vencimiento_proximo
     python -m app.crons.jobs vencimiento_consumado
     python -m app.crons.jobs inactividad
+    python -m app.crons.jobs purgar_reemplazos
+    python -m app.crons.jobs purgar_otros
     python -m app.crons.jobs all
 """
 from __future__ import annotations
@@ -11,18 +13,21 @@ from __future__ import annotations
 import datetime as dt
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 
 from app.core.codes import (
     CaseStatus,
     ChecklistStatus,
     DocStatus,
+    DocType,
     EventType,
     OPEN_STATUSES,
 )
+from app.core.config import settings
 from app.core.db import db_session
-from app.integrations import sinch
-from app.models import CaseChecklistItem, CaseFile, Document
+from app.integrations import sinch, storage
+from app.models import CaseChecklistItem, CaseFile, Document, OrphanDocument
 from app.modules.eventos import registrar_evento
 from app.modules.expedientes import next_steps as ns
 from app.modules.expedientes.state_machine import transition
@@ -142,10 +147,108 @@ def inactividad() -> int:
     return notificados
 
 
+def _purgar_archivo(db, doc: Document, job: str) -> bool:
+    """Borra de R2 el archivo de `doc` y lo marca como purgado. True si lo borro.
+
+    Guarda: NO borra si un huerfano comparte el mismo objeto (los docs asignados
+    desde la cola reutilizan el file_url del huerfano). La fila se conserva como
+    auditoria; solo se marca file_purged_at.
+    """
+    compartido = (
+        db.execute(
+            select(func.count())
+            .select_from(OrphanDocument)
+            .where(OrphanDocument.file_url == doc.file_url)
+        ).scalar()
+        or 0
+    )
+    if compartido:
+        return False
+    try:
+        storage.delete(doc.file_url)
+    except Exception as exc:  # no abortar el lote por un fallo puntual
+        print(f"[cron] {job}: fallo al borrar {doc.id}: {exc}")
+        return False
+    doc.file_purged_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
+    return True
+
+
+def purgar_reemplazos() -> int:
+    """Borra de R2 las versiones reemplazadas de 2+ niveles atras y vencidas.
+
+    Conserva SIEMPRE la version vigente y la inmediatamente anterior (1 nivel,
+    la que se ve en la UI para resolver disputas). Solo entra a la cola lo mas
+    viejo que eso, una vez pasado RETENCION_REEMPLAZOS_DIAS (.env).
+
+    El reloj de retencion usa `reception_at` (inmutable) del documento que provoco
+    que la version cayera a 2+ niveles: la cadena es d -> r -> s, y se mide desde
+    que existe `s` (el momento en que `r` reemplazo, dejando a `d` dos atras).
+    """
+    limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        days=settings.retencion_reemplazos_dias
+    )
+    borrados = 0
+    with db_session(user_label="cron") as db:
+        r = aliased(Document)  # el que reemplazo a d (1 nivel adelante)
+        s = aliased(Document)  # el que reemplazo a r (2 niveles adelante)
+        docs = list(
+            db.execute(
+                select(Document)
+                .join(r, Document.replaced_by_id == r.id)
+                .join(s, r.replaced_by_id == s.id)
+                .where(
+                    Document.status_code == DocStatus.REPLACED,
+                    Document.file_purged_at.is_(None),
+                    s.reception_at < limite,
+                )
+            ).scalars()
+        )
+        for doc in docs:
+            if _purgar_archivo(db, doc, "purgar_reemplazos"):
+                borrados += 1
+    print(f"[cron] purgar_reemplazos: {borrados} archivos borrados de R2")
+    return borrados
+
+
+def purgar_otros() -> int:
+    """Borra de R2 los documentos OTHER rechazados (basura genuina).
+
+    'Basura' = el clasificador no reconocio ninguno de los 4 tipos -> OTHER.
+    Controlado por RETENCION_OTHER_DIAS (.env), medido desde `reception_at`.
+
+    Los rechazados con tipo valido (ILLEGIBLE, TYPE_MISMATCH) NO entran aqui:
+    el auto-versionado del pipeline los marca REPLACED cuando llega un doc nuevo
+    del mismo tipo, y purgar_reemplazos se encarga de ellos a 2+ niveles.
+    """
+    limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        days=settings.retencion_other_dias
+    )
+    borrados = 0
+    with db_session(user_label="cron") as db:
+        docs = list(
+            db.execute(
+                select(Document).where(
+                    Document.detected_type_code == DocType.OTHER,
+                    Document.status_code == DocStatus.REJECTED,
+                    Document.file_purged_at.is_(None),
+                    Document.reception_at < limite,
+                )
+            ).scalars()
+        )
+        for doc in docs:
+            if _purgar_archivo(db, doc, "purgar_otros"):
+                borrados += 1
+    print(f"[cron] purgar_otros: {borrados} archivos borrados de R2")
+    return borrados
+
+
 _JOBS = {
     "vencimiento_proximo": vencimiento_proximo,
     "vencimiento_consumado": vencimiento_consumado,
     "inactividad": inactividad,
+    "purgar_reemplazos": purgar_reemplazos,
+    "purgar_otros": purgar_otros,
 }
 
 
