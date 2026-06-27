@@ -359,6 +359,7 @@ CREATE TABLE document (
     rejection_note       text,
     is_auto_rejected     smallint      NOT NULL DEFAULT 0 CHECK (is_auto_rejected IN (0,1)),
     replaced_by_id       uuid          REFERENCES document(id),             -- version que lo sustituye
+    file_purged_at       timestamptz,                                       -- cron borro el archivo de R2 (fila queda como auditoria)
     reception_at         timestamptz   NOT NULL DEFAULT now(),
     validated_by_id      uuid          REFERENCES app_user(id),
     validated_at         timestamptz,
@@ -601,6 +602,7 @@ INSERT INTO cat_document_type(code, label_es, is_checklist_item, validity_months
     ('OTHER',            'Otro',                                   0, NULL, 0, 0, 0, 9);
 
 INSERT INTO cat_document_status(code, label_es, sort_order) VALUES
+    ('PROCESSING','Procesando',  0),
     ('RECEIVED',  'Recibido',   1),
     ('VALIDATED', 'Validado',   2),
     ('REJECTED',  'Rechazado',  3),

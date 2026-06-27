@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sqlalchemy import func, select
+
 from app.core.codes import (
     CaseStatus,
     ChecklistStatus,
@@ -18,7 +20,7 @@ from app.core.codes import (
 )
 from app.core.config import settings
 from app.integrations import document_api
-from app.models import CaseChecklistItem, CatDocumentType
+from app.models import CaseChecklistItem, CatDocumentType, Document
 from app.modules.eventos import registrar_evento
 from app.modules.expedientes import next_steps as ns
 from app.modules.expedientes.state_machine import transition
@@ -31,11 +33,13 @@ def detectar_tipo(ctx: PipelineContext) -> None:
 
 
 def extraer(ctx: PipelineContext) -> None:
-    """Paso 2: llama a la Document API (stub) y recibe campos + confianza."""
+    """Paso 2: clasifica + extrae con Google Document AI (campos + confianza)."""
     if ctx.rejected:
         return
     try:
-        res = document_api.extract(ctx.file_name, ctx.mime_type, ctx.declared_type)
+        res = document_api.extract(
+            ctx.content, ctx.mime_type, ctx.declared_type, ctx.file_name
+        )
     except document_api.DocumentApiError as exc:
         ctx.reject(RejectionReason.ILLEGIBLE, str(exc))
         return
@@ -123,11 +127,40 @@ def persistir(ctx: PipelineContext) -> None:
     ctx.db.flush()
 
 
+def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
+    """Marca documentos anteriores del mismo tipo como REPLACED (auto-versionado).
+
+    Asi todo documento entra a la cadena de versiones (replaced_by_id) sin importar
+    si llego por upload normal, WhatsApp, email o reemplazo explicito.
+
+    Regla clave: si el nuevo doc es rechazado, solo desplaza otros rechazados
+    (no saca a un documento bueno). Si el nuevo es bueno, desplaza todo.
+    """
+    prev_cond = [
+        Document.case_file_id == ctx.case.id,
+        Document.id != ctx.document.id,
+        Document.active_flag == 1,
+        Document.status_code != DocStatus.REPLACED,
+        Document.file_purged_at.is_(None),
+        func.coalesce(Document.detected_type_code, Document.declared_type_code) == doc_type,
+    ]
+    if ctx.rejected:
+        prev_cond.append(Document.status_code == DocStatus.REJECTED)
+
+    prev_docs = list(ctx.db.execute(select(Document).where(*prev_cond)).scalars())
+    for prev in prev_docs:
+        prev.status_code = DocStatus.REPLACED
+        prev.replaced_by_id = ctx.document.id
+    if prev_docs:
+        ctx.db.flush()
+
+
 def actualizar_expediente(ctx: PipelineContext) -> None:
-    """Paso 5: recalcula checklist + estado + next steps."""
+    """Paso 5: auto-versiona, recalcula checklist + estado + next steps."""
     doc = ctx.document
     doc_type = ctx.detected_type or ctx.declared_type
     if doc_type and doc_type != DocType.OTHER:
+        _auto_version(ctx, doc_type)
         item = (
             ctx.db.query(CaseChecklistItem)
             .filter(

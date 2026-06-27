@@ -74,6 +74,27 @@ def main() -> int:
     r = c.post(f"/documentos/{bad_doc_id}/reemplazar", files=files)
     check("7. reemplazo comprobante", r.status_code == 201 and r.json().get("estado") == "RECEIVED", r.text)
     check("7b. version anterior enlazada", r.json().get("versionAnterior") is not None, r.text)
+    new_doc_id = r.json()["id"]
+
+    # 7c. Restaurar la version anterior: el doc viejo vuelve a estar vigente.
+    r = c.post(f"/documentos/{new_doc_id}/restaurar-version")
+    restored = r.json()
+    check(
+        "7c. restaurar version anterior",
+        r.status_code == 200
+        and restored.get("id") == bad_doc_id
+        and restored.get("estado") == "RECEIVED"
+        and (restored.get("versionAnterior") or {}).get("id") == new_doc_id,
+        r.text,
+    )
+
+    # 7d. Restaurar de nuevo (toggle): vuelve a quedar vigente el comprobante bueno.
+    r = c.post(f"/documentos/{bad_doc_id}/restaurar-version")
+    check(
+        "7d. toggle de vuelta a la version nueva",
+        r.status_code == 200 and r.json().get("id") == new_doc_id and r.json().get("estado") == "RECEIVED",
+        r.text,
+    )
 
     # 8. CSF desde el portal
     files = {"file": ("constancia_fiscal.pdf", b"%PDF csf", "application/pdf")}

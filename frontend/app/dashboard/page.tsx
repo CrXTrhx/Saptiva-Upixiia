@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { ContadoresEstado } from "@/components/dashboard/ContadoresEstado";
 import { FiltrosBusqueda } from "@/components/dashboard/FiltrosBusqueda";
 import { TablaExpedientes } from "@/components/dashboard/TablaExpedientes";
 import { TablaClientes } from "@/components/dashboard/TablaClientes";
-import { ExpedientesClienteModal } from "@/components/dashboard/ExpedientesClienteModal";
 import { VistaToggle, type VistaDashboard } from "@/components/dashboard/VistaToggle";
+import ClienteDetalle from "@/components/dashboard/ClienteDetalle";
 import { expedientesService } from "@/services/expedientesService";
 import type {
   ClienteAgrupado,
@@ -26,6 +27,7 @@ export default function DashboardPage() {
 }
 
 function DashboardContent() {
+  const router = useRouter();
   const [conteos, setConteos] = useState<ConteoEstados | null>(null);
   const [expedientes, setExpedientes] = useState<Expediente[]>([]);
   const [clientes, setClientes] = useState<ClienteAgrupado[]>([]);
@@ -90,6 +92,22 @@ function DashboardContent() {
     query.documentoFaltante
   );
 
+  // P-Cliente: al seleccionar un cliente (modo "Por cliente") se reemplaza el
+  // dashboard por la pantalla completa de detalle del cliente (antes era un modal
+  // pequeño). Los datos ya están en memoria (selectedCliente.expedientes); no hay
+  // fetch. Las navegaciones a P5 (expediente) y P3 (nueva venta) se reusan aquí.
+  if (selectedCliente) {
+    return (
+      <ClienteDetalle
+        cliente={selectedCliente}
+        expedientes={selectedCliente.expedientes}
+        onBack={handleCloseModal}
+        onAbrirExpediente={(exp) => router.push(`/expedientes/${exp.id}`)}
+        onNuevaVenta={() => router.push("/nueva-venta")}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <DashboardHeader huerfanosPendientes={huerfanos} />
@@ -121,11 +139,6 @@ function DashboardContent() {
           />
         )}
       </main>
-
-      <ExpedientesClienteModal
-        cliente={selectedCliente}
-        onClose={handleCloseModal}
-      />
     </div>
   );
 }

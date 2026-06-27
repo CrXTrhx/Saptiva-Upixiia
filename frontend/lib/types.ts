@@ -120,6 +120,7 @@ export type ConteoEstados = Record<Estado, number>;
 // --- P5 Detail types ---
 // Estados de documento del backend (DocStatus + checklist PENDING).
 export type EstadoDocumento =
+  | "PROCESSING"
   | "PENDING"
   | "RECEIVED"
   | "VALIDATED"
@@ -128,6 +129,7 @@ export type EstadoDocumento =
   | "REPLACED";
 
 export const ESTADO_DOCUMENTO_LABELS: Record<EstadoDocumento, string> = {
+  PROCESSING: "Procesando",
   PENDING: "Pendiente",
   RECEIVED: "Recibido",
   VALIDATED: "Validado",

@@ -1,7 +1,7 @@
 """Endpoints de documentos (upload manual, validar, rechazar, reemplazar)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.codes import Channel
@@ -30,6 +30,7 @@ def _read_upload(file: UploadFile) -> bytes:
 @router.post("/expedientes/{case_id}/documentos", status_code=201)
 def subir_documento(
     case_id: str,
+    background_tasks: BackgroundTasks,
     tipo: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -37,7 +38,10 @@ def subir_documento(
 ):
     case = get_case_or_404(db, case_id)
     content = _read_upload(file)
-    doc = service.ingest_document(
+    # 1) Se guarda el documento en PROCESSING y se devuelve de inmediato (la modal del
+    #    frontend se cierra y muestra una barra de "procesando"). 2) El analisis con
+    #    Document AI corre en segundo plano. Asi el estado sobrevive a un reload.
+    doc = service.create_processing_document(
         db, case,
         content=content,
         file_name=file.filename or "documento",
@@ -45,8 +49,11 @@ def subir_documento(
         channel=Channel.DIRECT_UPLOAD,
         sender=user.email,
         declared_type=tipo,
-        actor=user.email,
-        actor_user_id=user.id,
+    )
+    db.commit()  # persiste antes de que arranque la tarea en segundo plano
+    background_tasks.add_task(
+        service.process_document,
+        str(doc.id), actor=user.email, actor_user_id=user.id,
     )
     return serializers.serialize_documento(db, doc)
 
@@ -102,3 +109,14 @@ def reemplazar(
         user=user,
     )
     return serializers.serialize_documento(db, nuevo)
+
+
+@router.post("/documentos/{doc_id}/restaurar-version")
+def restaurar_version(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    doc = service.get_doc_or_404(db, doc_id)
+    restaurado = service.restaurar_version(db, doc, user)
+    return serializers.serialize_documento(db, restaurado)
