@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -520,7 +520,10 @@ function FauxPdfPage({ tipo }: { tipo: string }) {
   );
 }
 
-function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
+// React.memo evita recargar el <iframe>/<img> cuando el polling devuelve una nueva URL
+// firmada para el mismo documento (las presigned URLs de R2 cambian en cada request).
+const DocPreview = React.memo(
+  function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
   const ext = doc.filename.split(".").pop()?.toUpperCase() ?? "";
   const isPdf = doc.mimeType === "application/pdf" || doc.filename.endsWith(".pdf");
   const isImage = doc.mimeType.startsWith("image/");
@@ -541,6 +544,7 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
         <iframe
           src={`${doc.archivoUrl}#toolbar=0&navpanes=0&scrollbar=0`}
           title={doc.filename}
+          scrolling="no"
           className="w-full h-full"
           style={{ pointerEvents: "none", border: "none" }}
         />
@@ -557,7 +561,16 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
       )}
     </button>
   );
-}
+},
+// Solo re-renderiza si cambia el id, estado, nombre o si la URL pasa de null a tener valor.
+// Esto evita que el iframe/img se recargue cada vez que el polling devuelve una nueva
+// presigned URL para el mismo archivo.
+(prev, next) =>
+  prev.doc.id === next.doc.id &&
+  prev.doc.estado === next.doc.estado &&
+  prev.doc.filename === next.doc.filename &&
+  !(!prev.doc.archivoUrl && next.doc.archivoUrl),
+);
 
 function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior, readOnly }: {
   doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void; readOnly?: boolean;
