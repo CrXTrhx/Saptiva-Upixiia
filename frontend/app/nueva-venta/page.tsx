@@ -169,8 +169,11 @@ function NuevaVentaContent() {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const codigoPreview = useMemo(
-    () => expedientesService.previewNextCodigo(),
-    [],
+    () =>
+      expedientesService.previewNextCodigo(
+        values.tipoOperacion as TipoOperacion | "",
+      ),
+    [values.tipoOperacion],
   );
 
   const validation = useMemo(() => validateForm(values), [values]);

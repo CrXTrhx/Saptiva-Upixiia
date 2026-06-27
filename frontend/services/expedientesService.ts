@@ -110,9 +110,18 @@ export const expedientesService = {
   },
 
   // Vista previa visual del código; el real lo asigna el backend al crear.
-  previewNextCodigo(): string {
+  // Formato: EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}. El consecutivo (NNNNN) y los 4
+  // caracteres aleatorios (XXXX) los asigna el backend, así que aquí van como
+  // marcadores; solo el tipo de operación se refleja en vivo.
+  previewNextCodigo(tipoOperacion?: TipoOperacion | ""): string {
     const year = new Date().getFullYear();
-    return `EXP-${year}-XXXXX`;
+    const op =
+      tipoOperacion === "ARMORING"
+        ? "BLN"
+        : tipoOperacion === "VEHICLE_SALE"
+          ? "VNT"
+          : "···";
+    return `EXP-${year}-${op}#####-XXXX`;
   },
 
   async createExpediente(

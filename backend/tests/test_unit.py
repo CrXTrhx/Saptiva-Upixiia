@@ -20,6 +20,18 @@ def test_extract_codigo_case_insensitive():
     assert codigo_extractor.extract_codigo("exp-2026-00012") == "EXP-2026-00012"
 
 
+def test_extract_codigo_formato_nuevo():
+    # Formato nuevo: EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}
+    assert (
+        codigo_extractor.extract_codigo("asunto: EXP-2026-BLN00001-K7MQ")
+        == "EXP-2026-BLN00001-K7MQ"
+    )
+    assert (
+        codigo_extractor.extract_codigo("mi codigo es exp-2026-vnt00042-h8xt gracias")
+        == "EXP-2026-VNT00042-H8XT"
+    )
+
+
 def test_extract_codigo_ausente():
     assert codigo_extractor.extract_codigo("sin codigo aqui") is None
     assert codigo_extractor.extract_codigo(None) is None
