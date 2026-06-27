@@ -2,7 +2,6 @@
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ArrowLeft, ChevronRight, FileText, Loader2, Sparkles } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -144,6 +143,8 @@ function NuevaVentaContent() {
   // inicializador). Se limpia al montar para que una visita manual quede en blanco.
   const prefill = useMemo(() => peekNuevaVentaPrefill(), []);
   const documentoOrigen = prefill?.documentoOrigen ?? null;
+  const returnTo = prefill?.returnTo ?? "/dashboard";
+  const lockedFields = useMemo(() => new Set(prefill?.lockedFields ?? []), [prefill]);
 
   useEffect(() => {
     clearNuevaVentaPrefill();
@@ -182,6 +183,7 @@ function NuevaVentaContent() {
   // On-change: revalidate only if already touched
   const handleChange = useCallback(
     (field: keyof NuevaVentaFormValues, raw: string) => {
+      if (lockedFields.has(field)) return;
       const v = field === "clienteRfc" ? raw.toUpperCase() : raw;
       const cleaned =
         field === "montoEstimado" ? v.replace(/[^\d.]/g, "") : v;
@@ -197,7 +199,7 @@ function NuevaVentaContent() {
         });
       }
     },
-    [values, touched],
+    [values, touched, lockedFields],
   );
 
   // On-blur: mark touched + validate
@@ -297,19 +299,21 @@ function NuevaVentaContent() {
       <header className="border-b border-[var(--color-border)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 sm:px-8 py-4">
           <div className="flex items-center gap-3 text-sm">
-            <Link
-              href="/dashboard"
-              className="text-[var(--color-tertiary)] hover:text-[var(--color-text)] transition-colors"
-              aria-label="Volver al Dashboard"
+            <button
+              type="button"
+              onClick={() => returnTo === "back" ? router.back() : router.push(returnTo)}
+              className="text-[var(--color-tertiary)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+              aria-label="Volver"
             >
               <ArrowLeft size={18} strokeWidth={1.75} />
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            </button>
+            <button
+              type="button"
+              onClick={() => returnTo === "back" ? router.back() : router.push(returnTo)}
+              className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
             >
-              Dashboard
-            </Link>
+              {returnTo === "back" ? prefill?.nombreCliente || "Cliente" : "Dashboard"}
+            </button>
             <ChevronRight size={14} className="text-[var(--color-border)]" />
             <span className="font-medium text-[var(--color-text)]">
               Nueva venta
@@ -408,6 +412,7 @@ function NuevaVentaContent() {
                       handleChange("clienteNombre", e.target.value)
                     }
                     onBlur={() => handleBlur("clienteNombre")}
+                    readOnly={lockedFields.has("clienteNombre")}
                     aria-invalid={!!fieldErr("clienteNombre")}
                     aria-describedby={
                       fieldErr("clienteNombre")
@@ -415,6 +420,7 @@ function NuevaVentaContent() {
                         : undefined
                     }
                     className={inputClass(!!fieldErr("clienteNombre"))}
+                    style={lockedFields.has("clienteNombre") ? { backgroundColor: "var(--color-bg)", color: "var(--color-muted)", cursor: "not-allowed" } : undefined}
                   />
                 </Field>
 
@@ -487,6 +493,7 @@ function NuevaVentaContent() {
                         handleChange("clienteRfc", e.target.value)
                       }
                       onBlur={() => handleBlur("clienteRfc")}
+                      readOnly={lockedFields.has("clienteRfc")}
                       maxLength={13}
                       aria-invalid={!!fieldErr("clienteRfc")}
                       aria-describedby={
@@ -495,6 +502,7 @@ function NuevaVentaContent() {
                           : undefined
                       }
                       className={inputClass(!!fieldErr("clienteRfc"))}
+                      style={lockedFields.has("clienteRfc") ? { backgroundColor: "var(--color-bg)", color: "var(--color-muted)", cursor: "not-allowed" } : undefined}
                     />
                   </Field>
                   <Field
