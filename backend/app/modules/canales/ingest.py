@@ -93,8 +93,12 @@ def process_email_attachments(
     Corre FUERA del request (BackgroundTask), por lo que abre su propia sesion. Por
     cada adjunto ejecuta la logica comun de canales (handle_inbound -> pipeline de
     extraccion / cola de huerfanos). El codigo de expediente puede venir tanto en el
-    ASUNTO como en el cuerpo del correo; ambos se concatenan para buscarlo. Al final
-    envia un correo de confirmacion al remitente con el resumen.
+    ASUNTO como en el cuerpo del correo; ambos se concatenan para buscarlo.
+
+    Solo se responde al remitente cuando los documentos se asignaron a un expediente
+    valido (acuse de recibo). Si el correo no trae un expediente valido (sin codigo o
+    con uno inexistente) o no trae adjuntos, los archivos quedan en la cola de
+    huerfanos en silencio: NO se envia ningun correo.
     """
     # El codigo puede venir en el asunto o el cuerpo: se busca en ambos.
     message_text = "\n".join(p for p in (subject, body) if p)
@@ -122,54 +126,40 @@ def process_email_attachments(
         except Exception:
             logger.exception("Error procesando adjuntos de correo entrante de %s", sender)
 
-    _enviar_confirmacion(
-        sender, codigo, asignados, huerfanos, hubo_adjuntos=bool(attachments)
-    )
+    if huerfanos:
+        # Correos sin expediente valido: los adjuntos ya quedaron en la cola de
+        # huerfanos. NO se avisa al remitente (decision de producto); se registra
+        # para trazabilidad/soporte.
+        logger.info(
+            "Correo de %s: %d archivo(s) sin expediente valido -> huerfanos (sin aviso)",
+            sender or "?", len(huerfanos),
+        )
+
+    _enviar_confirmacion(sender, codigo, asignados)
 
 
 def _enviar_confirmacion(
     sender: str | None,
     codigo: str | None,
     asignados: list[str],
-    huerfanos: list[str],
-    *,
-    hubo_adjuntos: bool,
 ) -> None:
-    """Avisa al cliente que recibimos (o no) sus documentos. No falla si el correo no sale."""
-    if not sender:
+    """Acuse de recibo al cliente, SOLO cuando sus documentos se asignaron a un
+    expediente valido.
+
+    Si el correo no trae un expediente valido (sin codigo o con uno inexistente), o no
+    trae adjuntos, sus archivos quedan en la cola de huerfanos en silencio: NO se
+    responde nada (ni "sin adjuntos" ni "no encontramos tu codigo"). No falla si el
+    correo no sale.
+    """
+    if not sender or not asignados:
         return
 
-    if not hubo_adjuntos:
-        email_client.send_email(
-            sender,
-            "No recibimos archivos adjuntos",
-            "Recibimos tu correo pero no traia archivos adjuntos. Por favor responde "
-            "adjuntando tus documentos (PDF o foto) e incluye tu codigo de expediente "
-            "(formato EXP-AAAA-NNNNN) en el asunto.",
-        )
-        return
-
-    lineas: list[str] = []
-    if asignados:
-        lineas.append(
-            f"Recibimos {len(asignados)} documento(s) para tu expediente {codigo}:"
-        )
-        lineas += [f"  - {n}" for n in asignados]
-        lineas.append("")
-        lineas.append("Los estamos analizando. Te avisaremos si necesitamos algo mas.")
-    if huerfanos:
-        if asignados:
-            lineas.append("")
-        lineas.append(
-            f"No pudimos asignar {len(huerfanos)} archivo(s) porque no encontramos un "
-            "codigo de expediente valido:"
-        )
-        lineas += [f"  - {n}" for n in huerfanos]
-        lineas.append("")
-        lineas.append(
-            "Por favor responde indicando tu codigo de expediente "
-            "(formato EXP-AAAA-NNNNN) en el asunto del correo."
-        )
-
-    asunto = f"Documentos recibidos — {codigo}" if codigo else "Documentos recibidos"
-    email_client.send_email(sender, asunto, "\n".join(lineas))
+    lineas = [
+        f"Recibimos {len(asignados)} documento(s) para tu expediente {codigo}:",
+        *[f"  - {n}" for n in asignados],
+        "",
+        "Los estamos analizando. Te avisaremos si necesitamos algo mas.",
+    ]
+    email_client.send_email(
+        sender, f"Documentos recibidos — {codigo}", "\n".join(lineas)
+    )
