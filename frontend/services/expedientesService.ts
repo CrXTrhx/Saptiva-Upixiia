@@ -1,6 +1,5 @@
 import { apiClient, apiUpload } from "@/lib/apiClient";
 import type {
-  ClienteAgrupado,
   ClienteResumen,
   RfcSugerencia,
   ConteoEstados,
@@ -102,50 +101,6 @@ function buildQueryString(query: ExpedienteQuery): string {
   return qs ? `?${qs}` : "";
 }
 
-// Agrupa una lista de expedientes por cliente (teléfono/correo/id como identidad).
-// Pura, sin red: la usan getClientesAgrupados y la vista "Por cliente" del dashboard
-// (que ya tiene la lista en memoria, para no refetchear al alternar de vista).
-export function agruparPorCliente(filtered: Expediente[]): ClienteAgrupado[] {
-  const grupos = new Map<string, Expediente[]>();
-  for (const exp of filtered) {
-    const key = exp.clienteTelefono || exp.clienteCorreo || exp.id;
-    const arr = grupos.get(key);
-    if (arr) arr.push(exp);
-    else grupos.set(key, [exp]);
-  }
-
-  const clientes: ClienteAgrupado[] = [];
-  for (const [key, exps] of grupos) {
-    const expedientes = ordenarPorPrioridad(exps);
-    const head = expedientes[0];
-
-    const conteoPorEstado: Partial<Record<Estado, number>> = {};
-    for (const e of exps) {
-      conteoPorEstado[e.estado] = (conteoPorEstado[e.estado] ?? 0) + 1;
-    }
-
-    clientes.push({
-      id: key,
-      nombre: head.clienteNombre,
-      telefono: head.clienteTelefono,
-      correo: head.clienteCorreo,
-      rfc: head.clienteRfc,
-      montoTotal: exps.reduce((sum, e) => sum + (e.montoEstimado ?? 0), 0),
-      totalExpedientes: exps.length,
-      conteoPorEstado,
-      tieneUrgente: exps.some((e) => calcularPrioridad(e) === 0),
-      expedientes,
-    });
-  }
-
-  return clientes.sort((a, b) => {
-    const pa = Math.min(...a.expedientes.map(calcularPrioridad));
-    const pb = Math.min(...b.expedientes.map(calcularPrioridad));
-    if (pa !== pb) return pa - pb;
-    return b.montoTotal - a.montoTotal;
-  });
-}
-
 export const expedientesService = {
   async getExpediente(id: string): Promise<Expediente | null> {
     try {
@@ -203,15 +158,18 @@ export const expedientesService = {
     return ordenarPorPrioridad(data);
   },
 
-  // Vista "Por cliente": agrupa los expedientes (ya filtrados por el backend) por
-  // cliente, ordena cada grupo por prioridad y los clientes por su urgencia máxima.
-  async getClientesAgrupados(
+  // Vista "Por prioridad" paginada en el servidor. Cada respuesta incluye los
+  // elementos de la página y el total filtrado para el botón "Ver más".
+  async getExpedientesPagina(
     query: ExpedienteQuery = {},
-  ): Promise<ClienteAgrupado[]> {
-    const filtered = await apiClient<Expediente[]>(
-      `/expedientes${buildQueryString(query)}`,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: Expediente[]; total: number }> {
+    const qs = buildQueryString(query);
+    const separator = qs ? "&" : "?";
+    return apiClient<{ items: Expediente[]; total: number }>(
+      `/expedientes/pagina${qs}${separator}limit=${limit}&offset=${offset}`,
     );
-    return agruparPorCliente(filtered);
   },
 
   // --- Carga por pasos (optimización) -------------------------------------

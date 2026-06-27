@@ -753,14 +753,72 @@ function DetalleContent() {
   // cards aparezcan solas cuando entra un documento por otro canal. El estado vive en el
   // backend, asi que esto sigue funcionando aunque se recargue la pagina.
   const hayProcesando = (detalle?.documentos ?? []).some((d) => d.estado === "PROCESSING");
+  // Firma del contenido SIN las URLs prefirmadas (cambian en cada respuesta, válidas 1h):
+  // así un sondeo que no trae cambios reales no re-renderiza el árbol (con framer-motion).
+  const firmaRef = useRef<string>("");
+  const ultimaRenovacionUrlsRef = useRef(0);
+  useEffect(() => {
+    if (detalle) {
+      firmaRef.current = JSON.stringify(detalle, (k, v) =>
+        k === "archivoUrl" ? undefined : v,
+      );
+      ultimaRenovacionUrlsRef.current = Date.now();
+    }
+  }, [detalle]);
+
   useEffect(() => {
     if (dataStatus !== "loaded") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
     const intervalo = hayProcesando ? 2500 : 5000;
-    const t = setInterval(async () => {
+
+    const refrescar = async () => {
       const fresh = await expedientesService.getExpedienteDetalle(id);
-      if (fresh) setDetalle(fresh);
-    }, intervalo);
-    return () => clearInterval(t);
+      if (disposed || !fresh) return;
+      const firma = JSON.stringify(fresh, (k, v) =>
+        k === "archivoUrl" ? undefined : v,
+      );
+      const debeRenovarUrls =
+        Date.now() - ultimaRenovacionUrlsRef.current >= 45 * 60 * 1000;
+      if (firma !== firmaRef.current || debeRenovarUrls) {
+        firmaRef.current = firma;
+        ultimaRenovacionUrlsRef.current = Date.now();
+        setDetalle(fresh);
+      }
+    };
+
+    const stop = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const programar = () => {
+      stop();
+      if (disposed || document.visibilityState !== "visible") return;
+      timer = setTimeout(async () => {
+        timer = null;
+        await refrescar();
+        programar();
+      }, intervalo);
+    };
+
+    // Pausa el sondeo cuando la pestaña está oculta; al volver, refresca y reanuda.
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+      else {
+        void refrescar().finally(programar);
+      }
+    };
+
+    programar();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      disposed = true;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [hayProcesando, id, dataStatus]);
 
   const [modal, setModal] = useState<ModalState>({ type: "none" });

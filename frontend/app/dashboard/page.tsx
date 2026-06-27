@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -27,6 +27,12 @@ export default function DashboardPage() {
   );
 }
 
+const PAGE_SIZE = 20;
+
+function queryKey(query: ExpedienteQuery): string {
+  return JSON.stringify(query);
+}
+
 function DashboardContent() {
   const router = useRouter();
   const [conteos, setConteos] = useState<ConteoEstados | null>(null);
@@ -41,6 +47,8 @@ function DashboardContent() {
   const [loadingClientes, setLoadingClientes] = useState(true);
   const [expedientes, setExpedientes] = useState<Expediente[]>([]);
   const [loadingExpedientes, setLoadingExpedientes] = useState(false);
+  const [totalExpedientes, setTotalExpedientes] = useState(0);
+  const [loadingMas, setLoadingMas] = useState(false);
 
   // Cliente seleccionado → sus expedientes se cargan al hacer clic (no antes).
   const [selectedCliente, setSelectedCliente] = useState<ClienteResumen | null>(null);
@@ -48,6 +56,18 @@ function DashboardContent() {
   const [loadingClienteExpedientes, setLoadingClienteExpedientes] = useState(false);
 
   const [loadingConteos, setLoadingConteos] = useState(true);
+
+  // Caché independiente por vista y filtros. La identidad de cliente sigue siendo el
+  // RFC que entrega /clientes; aquí solo evitamos solicitudes repetidas al alternar.
+  const clientesCache = useRef<Map<string, ClienteResumen[]>>(new Map());
+  const expedientesCache = useRef<
+    Map<string, { items: Expediente[]; total: number }>
+  >(new Map());
+  const currentQueryKey = queryKey(query);
+  const currentQueryKeyRef = useRef(currentQueryKey);
+  useEffect(() => {
+    currentQueryKeyRef.current = currentQueryKey;
+  }, [currentQueryKey]);
 
   // Conteos + huérfanos pendientes en UNA sola request (antes eran 2).
   useEffect(() => {
@@ -61,10 +81,19 @@ function DashboardContent() {
   // Vista "Por cliente": pide la lista agregada de clientes (uno por RFC).
   useEffect(() => {
     if (activeView !== "cliente") return;
+    const key = queryKey(query);
+    const cached = clientesCache.current.get(key);
+    if (cached) {
+      setClientes(cached);
+      setLoadingClientes(false);
+      return;
+    }
+
     let cancelled = false;
     setLoadingClientes(true);
     expedientesService.getClientes(query).then((data) => {
       if (cancelled) return;
+      clientesCache.current.set(key, data);
       setClientes(data);
       setLoadingClientes(false);
     });
@@ -73,17 +102,30 @@ function DashboardContent() {
     };
   }, [activeView, query]);
 
-  // Vista "Por prioridad": pide la lista completa de expedientes (carga diferida:
-  // solo cuando el usuario entra a esta vista).
+  // Vista "Por prioridad": pide únicamente la primera página. Las siguientes se
+  // agregan con "Ver más", sin descargar todos los expedientes de golpe.
   useEffect(() => {
     if (activeView !== "prioridad") return;
+    const key = queryKey(query);
+    const cached = expedientesCache.current.get(key);
+    if (cached) {
+      setExpedientes(cached.items);
+      setTotalExpedientes(cached.total);
+      setLoadingExpedientes(false);
+      return;
+    }
+
     let cancelled = false;
     setLoadingExpedientes(true);
-    expedientesService.getExpedientes(query).then((data) => {
-      if (cancelled) return;
-      setExpedientes(data);
-      setLoadingExpedientes(false);
-    });
+    expedientesService
+      .getExpedientesPagina(query, PAGE_SIZE, 0)
+      .then(({ items, total }) => {
+        if (cancelled) return;
+        expedientesCache.current.set(key, { items, total });
+        setExpedientes(items);
+        setTotalExpedientes(total);
+        setLoadingExpedientes(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -93,8 +135,6 @@ function DashboardContent() {
   useEffect(() => {
     if (!selectedCliente) return;
     let cancelled = false;
-    setLoadingClienteExpedientes(true);
-    setClienteExpedientes([]);
     expedientesService
       .getExpedientesDeCliente(selectedCliente.id)
       .then((data) => {
@@ -108,6 +148,9 @@ function DashboardContent() {
   }, [selectedCliente]);
 
   const handleQueryChange = useCallback((next: ExpedienteQuery) => {
+    clientesCache.current.clear();
+    expedientesCache.current.clear();
+    setLoadingMas(false);
     setQuery(next);
   }, []);
 
@@ -116,8 +159,43 @@ function DashboardContent() {
   }, []);
 
   const handleSelectCliente = useCallback((cliente: ClienteResumen) => {
+    setLoadingClienteExpedientes(true);
+    setClienteExpedientes([]);
     setSelectedCliente(cliente);
   }, []);
+
+  const handleVerMas = useCallback(() => {
+    if (loadingMas || expedientes.length >= totalExpedientes) return;
+
+    const requestedQuery = query;
+    const requestedKey = queryKey(requestedQuery);
+    const offset = expedientes.length;
+    setLoadingMas(true);
+
+    expedientesService
+      .getExpedientesPagina(requestedQuery, PAGE_SIZE, offset)
+      .then(({ items, total }) => {
+        if (currentQueryKeyRef.current !== requestedKey) return;
+        setExpedientes((previous) => {
+          const known = new Set(previous.map((item) => item.id));
+          const merged = [
+            ...previous,
+            ...items.filter((item) => !known.has(item.id)),
+          ];
+          expedientesCache.current.set(requestedKey, {
+            items: merged,
+            total,
+          });
+          return merged;
+        });
+        setTotalExpedientes(total);
+      })
+      .finally(() => {
+        if (currentQueryKeyRef.current === requestedKey) {
+          setLoadingMas(false);
+        }
+      });
+  }, [expedientes.length, loadingMas, query, totalExpedientes]);
 
   const handleCloseDetalle = useCallback(() => {
     setSelectedCliente(null);
@@ -186,8 +264,12 @@ function DashboardContent() {
         ) : (
           <TablaExpedientes
             expedientes={expedientes}
+            total={totalExpedientes}
             loading={loadingExpedientes}
+            loadingMas={loadingMas}
             hasFilters={hasFilters}
+            pageSize={PAGE_SIZE}
+            onVerMas={handleVerMas}
           />
         )}
       </main>

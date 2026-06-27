@@ -29,14 +29,67 @@ def auth(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
-def _crear(client, auth, nombre="Test Persona", monto=700000, tipo="blindaje") -> dict:
+def _crear(
+    client,
+    auth,
+    nombre="Test Persona",
+    monto=700000,
+    tipo="blindaje",
+    rfc: str | None = None,
+) -> dict:
+    # El RFC es la identidad canónica del cliente y es obligatorio desde la relación
+    # cliente-expediente por RFC. Generamos uno válido y único para aislar cada prueba.
+    cliente_rfc = rfc or f"TEST900101{uuid.uuid4().hex[:3].upper()}"
     r = client.post("/api/expedientes", headers=auth, json={
         "clienteNombre": nombre, "clienteTelefono": "5550000000",
         "clienteCorreo": f"{uuid.uuid4().hex[:8]}@test.com",
+        "clienteRfc": cliente_rfc,
         "montoEstimado": monto, "tipoOperacion": tipo,
     })
     assert r.status_code == 201, r.text
     return r.json()
+
+
+def test_clientes_por_rfc_y_paginacion(client, auth):
+    rfc = f"TEST900101{uuid.uuid4().hex[:3].upper()}"
+    primero = _crear(client, auth, nombre="Cliente RFC", monto=100000, rfc=rfc)
+    segundo = _crear(client, auth, nombre="Cliente RFC", monto=200000, rfc=rfc)
+
+    clientes = client.get(
+        "/api/clientes", headers=auth, params={"search": rfc}
+    )
+    assert clientes.status_code == 200, clientes.text
+    assert len(clientes.json()) == 1
+    assert clientes.json()[0]["id"] == rfc
+    assert clientes.json()[0]["totalExpedientes"] == 2
+
+    expedientes_cliente = client.get(
+        f"/api/clientes/{rfc}/expedientes", headers=auth
+    )
+    assert expedientes_cliente.status_code == 200, expedientes_cliente.text
+    assert {e["id"] for e in expedientes_cliente.json()} == {
+        primero["id"],
+        segundo["id"],
+    }
+
+    pagina = client.get(
+        "/api/expedientes/pagina",
+        headers=auth,
+        params={"search": rfc, "limit": 1, "offset": 0},
+    )
+    assert pagina.status_code == 200, pagina.text
+    assert pagina.json()["total"] == 2
+    assert len(pagina.json()["items"]) == 1
+
+    siguiente = client.get(
+        "/api/expedientes/pagina",
+        headers=auth,
+        params={"search": rfc, "limit": 1, "offset": 1},
+    )
+    assert siguiente.status_code == 200, siguiente.text
+    assert siguiente.json()["total"] == 2
+    assert len(siguiente.json()["items"]) == 1
+    assert pagina.json()["items"][0]["id"] != siguiente.json()["items"][0]["id"]
 
 
 def test_login_requiere_credenciales_validas(client):
