@@ -3,7 +3,7 @@
 import { memo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
-import type { ClienteAgrupado } from "@/lib/types";
+import type { ClienteResumen } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
 import { usePaginacionRender } from "@/lib/usePaginacionRender";
 import { VerMasBtn } from "@/components/ui/VerMasBtn";
@@ -44,7 +44,7 @@ function formatMoney(n: number): string {
 const ConteoChips = memo(function ConteoChips({
   conteo,
 }: {
-  conteo: ClienteAgrupado["conteoPorEstado"];
+  conteo: ClienteResumen["conteoPorEstado"];
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -93,8 +93,8 @@ const ClienteRow = memo(function ClienteRow({
   cliente,
   onSelect,
 }: {
-  cliente: ClienteAgrupado;
-  onSelect: (cliente: ClienteAgrupado) => void;
+  cliente: ClienteResumen;
+  onSelect: (cliente: ClienteResumen) => void;
 }) {
   const tone = avatarTone(cliente.id);
 
@@ -171,10 +171,10 @@ export function TablaClientes({
   hasFilters,
   onSelectCliente,
 }: {
-  clientes: ClienteAgrupado[];
+  clientes: ClienteResumen[];
   loading: boolean;
   hasFilters: boolean;
-  onSelectCliente: (cliente: ClienteAgrupado) => void;
+  onSelectCliente: (cliente: ClienteResumen) => void;
 }) {
   const reduceMotion = useReducedMotion();
   const { mostrados, hayMas, restantes, verMas, pageSize } =

@@ -61,11 +61,30 @@ def get_case_or_404(db: Session, case_id: str) -> CaseFile:
 def create_expediente(
     db: Session, req: CreateExpedienteRequest, user: AppUser
 ) -> CaseFile:
+    rfc = (req.cliente_rfc or "").strip().upper() or None
+
+    # Si ya existe un cliente con este RFC, el nuevo expediente se ASOCIA a el (la
+    # relacion es por RFC). Heredamos CURP / codigo postal del expediente mas
+    # reciente de ese cliente para mantener consistente el emparejamiento de
+    # documentos huerfanos.
+    prev_curp = prev_cp = None
+    if rfc:
+        prev = db.execute(
+            select(CaseFile)
+            .where(CaseFile.client_rfc == rfc, CaseFile.active_flag == 1)
+            .order_by(CaseFile.created_at.desc())
+        ).scalars().first()
+        if prev:
+            prev_curp = prev.client_curp
+            prev_cp = prev.client_postal_code
+
     case = CaseFile(
         client_name=req.cliente_nombre.strip(),
         client_phone=req.cliente_telefono.strip(),
         client_email=req.cliente_correo,
-        client_rfc=(req.cliente_rfc or None),
+        client_rfc=rfc,
+        client_curp=prev_curp,
+        client_postal_code=prev_cp,
         estimated_amount=req.monto_estimado,
         operation_type_code=req.operation_type_code(),
         assigned_user_id=user.id,

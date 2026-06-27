@@ -1,19 +1,33 @@
 """Schemas de request del modulo expedientes (camelCase desde el frontend)."""
 from __future__ import annotations
 
-from pydantic import EmailStr, Field
+import re
+
+from pydantic import EmailStr, Field, field_validator
 
 from app.core.codes import OperationType
 from app.schemas.base import CamelModel
+
+# RFC mexicano (persona fisica 13 / moral 12). Es la identidad del cliente: con el
+# se relacionan los expedientes, por eso ahora es OBLIGATORIO al crear.
+_RFC_RE = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$")
 
 
 class CreateExpedienteRequest(CamelModel):
     cliente_nombre: str = Field(min_length=2, max_length=255)
     cliente_telefono: str = Field(min_length=5, max_length=30)
     cliente_correo: EmailStr
-    cliente_rfc: str | None = Field(default=None, max_length=13)
+    cliente_rfc: str = Field(min_length=12, max_length=13)
     monto_estimado: float = Field(gt=0)
     tipo_operacion: str  # ARMORING | VEHICLE_SALE
+
+    @field_validator("cliente_rfc")
+    @classmethod
+    def _normaliza_rfc(cls, v: str) -> str:
+        v = (v or "").strip().upper()
+        if not _RFC_RE.match(v):
+            raise ValueError("RFC invalido")
+        return v
 
     def operation_type_code(self) -> str:
         mapping = {

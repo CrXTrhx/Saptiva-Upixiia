@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -11,9 +11,9 @@ import { TablaClientes } from "@/components/dashboard/TablaClientes";
 import { VistaToggle, type VistaDashboard } from "@/components/dashboard/VistaToggle";
 import ClienteDetalle from "@/components/dashboard/ClienteDetalle";
 import { setNuevaVentaPrefill } from "@/lib/nueva-venta-handoff";
-import { expedientesService, agruparPorCliente } from "@/services/expedientesService";
+import { expedientesService } from "@/services/expedientesService";
 import type {
-  ClienteAgrupado,
+  ClienteResumen,
   ConteoEstados,
   Expediente,
   ExpedienteQuery,
@@ -30,13 +30,24 @@ export default function DashboardPage() {
 function DashboardContent() {
   const router = useRouter();
   const [conteos, setConteos] = useState<ConteoEstados | null>(null);
-  const [expedientes, setExpedientes] = useState<Expediente[]>([]);
   const [huerfanos, setHuerfanos] = useState<number | null>(null);
   const [query, setQuery] = useState<ExpedienteQuery>({});
   const [activeView, setActiveView] = useState<VistaDashboard>("cliente");
-  const [selectedCliente, setSelectedCliente] = useState<ClienteAgrupado | null>(null);
+
+  // Carga por pasos: la lista de clientes (compacta) y la de expedientes se piden
+  // por separado y SOLO la de la vista activa. Así, al entrar, el navegador no
+  // descarga todos los expedientes de golpe.
+  const [clientes, setClientes] = useState<ClienteResumen[]>([]);
+  const [loadingClientes, setLoadingClientes] = useState(true);
+  const [expedientes, setExpedientes] = useState<Expediente[]>([]);
+  const [loadingExpedientes, setLoadingExpedientes] = useState(false);
+
+  // Cliente seleccionado → sus expedientes se cargan al hacer clic (no antes).
+  const [selectedCliente, setSelectedCliente] = useState<ClienteResumen | null>(null);
+  const [clienteExpedientes, setClienteExpedientes] = useState<Expediente[]>([]);
+  const [loadingClienteExpedientes, setLoadingClienteExpedientes] = useState(false);
+
   const [loadingConteos, setLoadingConteos] = useState(true);
-  const [loadingTable, setLoadingTable] = useState(true);
 
   // Conteos + huérfanos pendientes en UNA sola request (antes eran 2).
   useEffect(() => {
@@ -47,24 +58,54 @@ function DashboardContent() {
     });
   }, []);
 
-  // Un solo fetch de la lista por `query`. La vista "Por cliente" se deriva en memoria
-  // (agruparPorCliente), así alternar de vista NO vuelve a pedir datos al backend.
+  // Vista "Por cliente": pide la lista agregada de clientes (uno por RFC).
   useEffect(() => {
+    if (activeView !== "cliente") return;
     let cancelled = false;
-    setLoadingTable(true);
-
-    expedientesService.getExpedientes(query).then((data) => {
+    setLoadingClientes(true);
+    expedientesService.getClientes(query).then((data) => {
       if (cancelled) return;
-      setExpedientes(data);
-      setLoadingTable(false);
+      setClientes(data);
+      setLoadingClientes(false);
     });
-
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [activeView, query]);
 
-  const clientes = useMemo(() => agruparPorCliente(expedientes), [expedientes]);
+  // Vista "Por prioridad": pide la lista completa de expedientes (carga diferida:
+  // solo cuando el usuario entra a esta vista).
+  useEffect(() => {
+    if (activeView !== "prioridad") return;
+    let cancelled = false;
+    setLoadingExpedientes(true);
+    expedientesService.getExpedientes(query).then((data) => {
+      if (cancelled) return;
+      setExpedientes(data);
+      setLoadingExpedientes(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, query]);
+
+  // Al seleccionar un cliente, se cargan SOLO sus expedientes.
+  useEffect(() => {
+    if (!selectedCliente) return;
+    let cancelled = false;
+    setLoadingClienteExpedientes(true);
+    setClienteExpedientes([]);
+    expedientesService
+      .getExpedientesDeCliente(selectedCliente.id)
+      .then((data) => {
+        if (cancelled) return;
+        setClienteExpedientes(data);
+        setLoadingClienteExpedientes(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCliente]);
 
   const handleQueryChange = useCallback((next: ExpedienteQuery) => {
     setQuery(next);
@@ -74,12 +115,13 @@ function DashboardContent() {
     setActiveView(view);
   }, []);
 
-  const handleSelectCliente = useCallback((cliente: ClienteAgrupado) => {
+  const handleSelectCliente = useCallback((cliente: ClienteResumen) => {
     setSelectedCliente(cliente);
   }, []);
 
-  const handleCloseModal = useCallback(() => {
+  const handleCloseDetalle = useCallback(() => {
     setSelectedCliente(null);
+    setClienteExpedientes([]);
   }, []);
 
   const hasFilters = !!(
@@ -89,16 +131,16 @@ function DashboardContent() {
     query.documentoFaltante
   );
 
-  // P-Cliente: al seleccionar un cliente (modo "Por cliente") se reemplaza el
-  // dashboard por la pantalla completa de detalle del cliente (antes era un modal
-  // pequeño). Los datos ya están en memoria (selectedCliente.expedientes); no hay
-  // fetch. Las navegaciones a P5 (expediente) y P3 (nueva venta) se reusan aquí.
+  // Detalle de cliente a pantalla completa: muestra solo los expedientes de ESE
+  // cliente (cargados al hacer clic). El botón "Nueva venta" precarga los datos del
+  // cliente y los bloquea (solo se edita la venta).
   if (selectedCliente) {
     return (
       <ClienteDetalle
         cliente={selectedCliente}
-        expedientes={selectedCliente.expedientes}
-        onBack={handleCloseModal}
+        expedientes={clienteExpedientes}
+        loading={loadingClienteExpedientes}
+        onBack={handleCloseDetalle}
         onAbrirExpediente={(exp) => router.push(`/expedientes/${exp.id}`)}
         onNuevaVenta={(cli) => {
           setNuevaVentaPrefill({
@@ -110,6 +152,7 @@ function DashboardContent() {
             montoEstimado: "",
             returnTo: "back",
             lockedFields: ["clienteNombre", "clienteRfc"],
+            clienteLock: true,
           });
           router.push("/nueva-venta");
         }}
@@ -136,14 +179,14 @@ function DashboardContent() {
         {activeView === "cliente" ? (
           <TablaClientes
             clientes={clientes}
-            loading={loadingTable}
+            loading={loadingClientes}
             hasFilters={hasFilters}
             onSelectCliente={handleSelectCliente}
           />
         ) : (
           <TablaExpedientes
             expedientes={expedientes}
-            loading={loadingTable}
+            loading={loadingExpedientes}
             hasFilters={hasFilters}
           />
         )}

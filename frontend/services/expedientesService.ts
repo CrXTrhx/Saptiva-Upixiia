@@ -1,6 +1,8 @@
 import { apiClient, apiUpload } from "@/lib/apiClient";
 import type {
   ClienteAgrupado,
+  ClienteResumen,
+  RfcSugerencia,
   ConteoEstados,
   CreateExpedienteRequest,
   CreateExpedienteResponse,
@@ -210,6 +212,33 @@ export const expedientesService = {
       `/expedientes${buildQueryString(query)}`,
     );
     return agruparPorCliente(filtered);
+  },
+
+  // --- Carga por pasos (optimización) -------------------------------------
+  // Paso 1: lista COMPACTA de clientes (uno por RFC) ya agregada por el backend.
+  // No descarga todos los expedientes: el navegador solo recibe N filas de cliente.
+  // Acepta los mismos filtros que la lista de expedientes (search/estado/fecha/doc).
+  async getClientes(query: ExpedienteQuery = {}): Promise<ClienteResumen[]> {
+    return apiClient<ClienteResumen[]>(`/clientes${buildQueryString(query)}`);
+  },
+
+  // Paso 2: expedientes de UN cliente (al hacer clic). `clave` es el RFC o, si es
+  // un cliente legacy sin RFC, el id del expediente.
+  async getExpedientesDeCliente(clave: string): Promise<Expediente[]> {
+    const data = await apiClient<Expediente[]>(
+      `/clientes/${encodeURIComponent(clave)}/expedientes`,
+    );
+    return ordenarPorPrioridad(data);
+  },
+
+  // Autocompletado de RFC en el form de nueva venta: clientes cuyo RFC empieza
+  // con el prefijo escrito.
+  async getSugerenciasRfc(prefix: string): Promise<RfcSugerencia[]> {
+    const p = prefix.trim();
+    if (p.length < 2) return [];
+    return apiClient<RfcSugerencia[]>(
+      `/clientes/sugerencias?rfc=${encodeURIComponent(p)}`,
+    );
   },
 
   async getConteos(): Promise<ConteoEstados> {
