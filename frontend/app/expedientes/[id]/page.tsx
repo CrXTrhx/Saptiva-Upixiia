@@ -19,6 +19,7 @@ import { Modal } from "@/components/ui/Modal";
 import { expedientesService } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import {
+  DOCUMENTOS_REQUERIDOS,
   DOCUMENTO_REQUERIDO_LABELS,
   CANAL_LABELS,
   EVENT_TYPE_LABELS,
@@ -362,6 +363,37 @@ export default function ExpedienteDetallePage() {
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
 
+function deriveNextSteps(checklist: ChecklistItemType[], documentos: Documento[]): NextStep[] {
+  const activeByTipo = new Map<DocumentoRequerido, Documento>(documentos.map((doc) => [doc.tipo, doc]));
+  const steps: NextStep[] = [];
+
+  const addStep = (id: string, texto: string, prioridad: PrioridadNextStep) => {
+    steps.push({ id, texto, prioridad });
+  };
+
+  const csf = activeByTipo.get("TAX_STATUS_CERT");
+  if (csf?.estado === "REJECTED") {
+    addStep("ns-csf-rechazado", "Solicitar nueva CSF al cliente (rechazada por vencimiento)", "HIGH");
+  }
+
+  const curp = activeByTipo.get("CURP");
+  if (curp?.estado === "RECEIVED") {
+    addStep("ns-validar-curp", "Validar CURP recibida", "HIGH");
+  }
+
+  const comprobante = activeByTipo.get("PROOF_OF_ADDRESS");
+  if (!comprobante || comprobante.estado === "PENDING") {
+    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "MEDIUM");
+  }
+
+  const ine = activeByTipo.get("OFFICIAL_ID");
+  if (ine?.estado === "VALIDATED") {
+    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "LOW");
+  }
+
+  return steps;
+}
+
 function DetalleContent() {
   const params = useParams();
   const router = useRouter();
@@ -431,6 +463,11 @@ function DetalleContent() {
   const exp = detalle?.expediente;
 
   const activeDocumentos = useMemo(() => documentos.filter((d) => d.estado !== "REPLACED"), [documentos]);
+  const tiposDisponiblesParaSubida = useMemo(
+    () => DOCUMENTOS_REQUERIDOS.filter((tipo) => !activeDocumentos.some((doc) => doc.tipo === tipo)),
+    [activeDocumentos],
+  );
+  const puedeSubirDocumento = tiposDisponiblesParaSubida.length > 0;
   const checklistCompleto = useMemo(() => checklist.length === 4 && checklist.every((c) => c.estado === "VALIDATED"), [checklist]);
   const detalleDoc = useMemo(() => {
     if (!detalleAbiertoTipo) return null;
@@ -821,7 +858,12 @@ function DetalleContent() {
               <SectionTitle
                 icon={FileText}
                 right={
-                  <button onClick={() => setModal({ type: "subir", modo: "nuevo" })} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
+                  <button
+                    onClick={() => puedeSubirDocumento && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento}
+                    className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors disabled:cursor-not-allowed"
+                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento ? "#5C5957" : "#B5AFA9" }}
+                  >
                     <Plus size={12} strokeWidth={2} /> Subir documento manual
                   </button>
                 }
@@ -831,7 +873,16 @@ function DetalleContent() {
               {activeDocumentos.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-[12px] mb-3" style={{ color: "#989396" }}>Aún no hay documentos recibidos</p>
-                  <button onClick={() => setModal({ type: "subir", modo: "nuevo" })} className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer" style={{ backgroundColor: "#FAF6F1", color: "#5C5957", border: "1px solid #F0EBE5" }}>
+                  <button
+                    onClick={() => puedeSubirDocumento && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento}
+                    className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer disabled:cursor-not-allowed"
+                    style={{
+                      backgroundColor: puedeSubirDocumento ? "#FAF6F1" : "#F0F0F0",
+                      color: puedeSubirDocumento ? "#5C5957" : "#B5AFA9",
+                      border: "1px solid #F0EBE5",
+                    }}
+                  >
                     <Plus size={12} strokeWidth={2} className="inline mr-1" />Subir documento manual
                   </button>
                 </div>
@@ -1170,6 +1221,7 @@ function DetalleContent() {
           modo={modal.modo}
           expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
           documentoActual={modal.documentoId ? documentos.find((d) => d.id === modal.documentoId) ?? null : null}
+          tiposDisponibles={modal.modo === "nuevo" ? tiposDisponiblesParaSubida : undefined}
           onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }}
           onClose={() => setModal({ type: "none" })}
           loading={modalLoading}
