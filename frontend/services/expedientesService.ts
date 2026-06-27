@@ -292,10 +292,31 @@ export const expedientesService = {
     });
   },
 
-  async reenviarInstrucciones(id: string): Promise<void> {
-    await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
-      method: "POST",
-    });
+  async getInstrucciones(id: string): Promise<{
+    codigo: string;
+    whatsapp: string;
+    correo: string;
+    texto: string;
+    remitente: string;
+    destinatario: string;
+    asunto: string;
+  }> {
+    return apiClient<{
+      codigo: string;
+      whatsapp: string;
+      correo: string;
+      texto: string;
+      remitente: string;
+      destinatario: string;
+      asunto: string;
+    }>(`/expedientes/${id}/instrucciones`);
+  },
+
+  async reenviarInstrucciones(id: string): Promise<{ enviado: boolean; correo: string }> {
+    return apiClient<{ enviado: boolean; correo: string }>(
+      `/expedientes/${id}/reenviar-instrucciones`,
+      { method: "POST" },
+    );
   },
 
   // Vista previa del correo de instrucciones (la arma el backend): destinatario,
