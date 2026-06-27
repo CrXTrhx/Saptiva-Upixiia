@@ -17,12 +17,7 @@ from app.core.codes import (
     RejectionReason,
 )
 from app.core.config import settings
-<<<<<<< Updated upstream
 from app.core.errors import ConflictError, NotFoundError
-from app.integrations import email
-=======
-from app.core.errors import AppError, ConflictError, NotFoundError
->>>>>>> Stashed changes
 from app.models import (
     AppUser,
     CaseChecklistItem,
@@ -393,7 +388,6 @@ def agregar_nota(db: Session, case: CaseFile, texto: str, user: AppUser) -> Inte
     return nota
 
 
-<<<<<<< Updated upstream
 # Etiquetas en espanol para el correo al cliente (copy humano, no contrato de API).
 _DOC_TYPE_ES = {
     DocType.OFFICIAL_ID: "INE",
@@ -495,65 +489,16 @@ def instrucciones_texto(db: Session, case: CaseFile) -> str:
     return "\n".join(lineas)
 
 
-def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> str:
-    """Envia las instrucciones por correo al cliente del expediente (Mailgun).
-
-    Devuelve el destinatario. Lanza ConflictError si el expediente no tiene correo
-    registrado o si el envio falla.
-    """
+def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> dict:
     destinatario = (case.client_email or "").strip()
     if not destinatario:
         raise ConflictError("El expediente no tiene un correo registrado")
-    cuerpo = instrucciones_texto(db, case)
-    if not email.send_email(destinatario, case.code, cuerpo):
-        raise ConflictError("No se pudo enviar el correo")
-=======
-def instrucciones_texto(case: CaseFile) -> str:
-    primer_nombre = case.client_name.split()[0] if case.client_name else "Cliente"
-    codigo = case.code
-    lines = [
-        f"Hola {primer_nombre},",
-        "",
-        f"Tu expediente ha sido creado con el código {codigo}.",
-        "",
-        "Para continuar con el proceso, necesitamos los siguientes documentos:",
-        "• INE (frente y vuelta)",
-        "• CURP",
-        "• Constancia de Situación Fiscal",
-        "• Comprobante de domicilio",
-        "",
-        "📧 Envíalos por correo a:",
-        f"   {settings.system_email}",
-        "",
-        "Sigue estas instrucciones para que podamos procesarlos automáticamente:",
-        f"   • Asunto del correo: {codigo}",
-        f"   • En el cuerpo, escribe tu nombre y tu código {codigo}",
-        "   • Adjunta los documentos en PDF o foto (máx. 15 MB por archivo)",
-        "   • Puedes mandar todo en un solo correo o uno por documento",
-        "",
-        f"📱 También puedes enviarlos por WhatsApp: {settings.system_whatsapp}",
-        f"   (incluye tu código {codigo} en el mensaje)",
-        "",
-        f"Es muy importante incluir el código {codigo} para identificar tu documentación.",
-        "",
-        "¡Gracias!",
-    ]
-    return "\n".join(lines)
-
-
-def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> dict:
-    if not case.client_email:
-        raise AppError("El expediente no tiene correo del cliente", status_code=400)
     subject = f"Documentos para tu expediente {case.code}"
-    enviado = email_client.send_email(case.client_email, subject, instrucciones_texto(case))
->>>>>>> Stashed changes
+    cuerpo = instrucciones_texto(db, case)
+    enviado = email_client.send_email(destinatario, subject, cuerpo)
     registrar_evento(
         db, case.id, EventType.INSTRUCTIONS_RESENT,
         f"Instrucciones reenviadas por correo a {destinatario}",
         actor=user.email, actor_user_id=user.id,
     )
-<<<<<<< Updated upstream
-    return destinatario
-=======
-    return {"enviado": enviado, "correo": case.client_email}
->>>>>>> Stashed changes
+    return {"enviado": enviado, "correo": destinatario}

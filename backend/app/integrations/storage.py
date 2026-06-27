@@ -171,6 +171,27 @@ def delete(stored_value: str | None) -> None:
     _r2_client().delete_object(Bucket=settings.r2_bucket, Key=stored_value)
 
 
+def purge_all() -> int:
+    """Borra TODOS los objetos del bucket R2 configurado. Devuelve cuantos borro.
+
+    Solo para mantenimiento/demo (dejar el bucket vacio). No aplica al backend
+    local. Pagina el listado y borra en lotes de hasta 1000 (limite de S3).
+    """
+    if settings.storage_backend != "r2":
+        return 0
+    client = _r2_client()
+    bucket = settings.r2_bucket
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket):
+        objs = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+        if objs:
+            client.delete_objects(Bucket=bucket, Delete={"Objects": objs, "Quiet": True})
+            deleted += len(objs)
+    _presign_cache.clear()
+    return deleted
+
+
 def resolve_url(stored_value: str | None) -> str | None:
     """Convierte lo guardado en file_url a una URL servible por el frontend.
 

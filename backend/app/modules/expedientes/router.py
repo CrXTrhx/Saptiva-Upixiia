@@ -128,14 +128,7 @@ def instrucciones(
         "asunto": case.code,
         "whatsapp": settings.system_whatsapp,
         "correo": settings.system_email,
-<<<<<<< Updated upstream
         "texto": service.instrucciones_texto(db, case),
-=======
-        "texto": service.instrucciones_texto(case),
-        "remitente": remitente,
-        "destinatario": case.client_email or "",
-        "asunto": f"Documentos para tu expediente {case.code}",
->>>>>>> Stashed changes
     }
 
 

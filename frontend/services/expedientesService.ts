@@ -319,13 +319,6 @@ export const expedientesService = {
     );
   },
 
-  // Vista previa del correo de instrucciones (la arma el backend): destinatario,
-  // remitente, asunto y cuerpo (con los documentos pendientes y su motivo). La usa
-  // el menú "Reenviar instrucciones" (panel de correo + "Copiar instrucciones").
-  async getInstrucciones(id: string): Promise<InstruccionesPreview> {
-    return apiClient<InstruccionesPreview>(`/expedientes/${id}/instrucciones`);
-  },
-
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {
     return apiClient<Nota>(`/expedientes/${expedienteId}/notas`, {
       method: "POST",

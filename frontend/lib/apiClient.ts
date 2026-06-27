@@ -14,7 +14,6 @@ export async function apiClient<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  console.log(url)
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
