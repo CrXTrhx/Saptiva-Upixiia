@@ -47,6 +47,7 @@ type SubirDocumentoModalProps = {
   onConfirm: (tipo: DocumentoRequerido, archivo: File) => void;
   onClose: () => void;
   loading?: boolean;
+  tiposDisponibles?: DocumentoRequerido[];
 };
 
 function getExt(name = "") {
@@ -81,9 +82,14 @@ export default function SubirDocumentoModal({
   onConfirm,
   onClose,
   loading = false,
+  tiposDisponibles,
 }: SubirDocumentoModalProps) {
+  const availableTipos =
+    modo === "reemplazo" || tiposDisponibles === undefined
+      ? DOCUMENTOS_REQUERIDOS
+      : tiposDisponibles;
   const [tipo, setTipo] = useState<DocumentoRequerido>(
-    documentoActual?.tipo ?? "OFFICIAL_ID",
+    documentoActual?.tipo ?? availableTipos[0] ?? "OFFICIAL_ID",
   );
   const [archivo, setArchivo] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -246,11 +252,15 @@ export default function SubirDocumentoModal({
               style={{ border: "1px solid #E5DED6", color: "#302F2D", backgroundColor: "#FFFFFF", outline: "none" }}
               onFocus={(e) => (e.currentTarget.style.borderColor = "#F19B42")}
               onBlur={(e) => (e.currentTarget.style.borderColor = "#E5DED6")}
+              disabled={availableTipos.length === 0}
             >
-              {DOCUMENTOS_REQUERIDOS.map((dr) => (
+              {availableTipos.map((dr) => (
                 <option key={dr} value={dr}>{DOCUMENTO_REQUERIDO_LABELS[dr]}</option>
               ))}
             </select>
+            {availableTipos.length === 0 && (
+              <p className="mb-3 text-[12px] text-[#9C4B2E]">Ya no quedan tipos de documento disponibles para subir.</p>
+            )}
 
             {/* Dropzone / preview */}
             <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider" style={{ color: "#5C5957" }}>
