@@ -30,7 +30,7 @@
 
 ## ¿Qué es digitalfoldr?
 
-**digitalfoldr** es una plataforma AML (Anti-Money Laundering) que digitaliza el proceso de recolección y validación de documentos KYC para instituciones financieras como CENTUR. Cuando un asesor registra una nueva venta, el sistema genera automáticamente un checklist de documentos requeridos, envía instrucciones al cliente por WhatsApp o correo, y valida los documentos recibidos usando Google Document AI.
+**digitalfoldr** es una plataforma AML (Anti-Money Laundering) que digitaliza el proceso de recolección y validación de documentos KYC. Cuando un asesor registra una nueva venta, el sistema genera automáticamente un checklist de documentos requeridos, envía instrucciones al cliente por WhatsApp o correo, y valida los documentos recibidos usando Google Document AI.
 
 Los documentos pueden llegar por **múltiples canales** (upload manual, WhatsApp, correo electrónico) y son clasificados y extraídos automáticamente. El asesor solo interviene cuando hay una discrepancia o el sistema no puede validar un documento con suficiente confianza.
 
