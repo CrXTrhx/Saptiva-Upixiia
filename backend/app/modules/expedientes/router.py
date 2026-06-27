@@ -53,6 +53,34 @@ def listar_expedientes(
     return serializers.serialize_expedientes_bulk(db, cases)
 
 
+@router.get("/expedientes/pagina")
+def listar_expedientes_pagina(
+    search: str | None = Query(default=None),
+    estado: str | None = Query(default=None),
+    desde: str | None = Query(default=None),
+    hasta: str | None = Query(default=None),
+    doc_faltante: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    cases, total = service.list_expedientes_pagina(
+        db,
+        search=search,
+        estado=estado,
+        desde=desde,
+        hasta=hasta,
+        doc_faltante=doc_faltante,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "items": serializers.serialize_expedientes_bulk(db, cases),
+        "total": total,
+    }
+
+
 @router.get("/expedientes/{case_id}")
 def obtener_expediente(
     case_id: str,

@@ -101,6 +101,9 @@ export type ClienteLite = {
   telefono?: string;
   correo?: string;
   rfc?: string | null;
+  montoTotal?: number;
+  totalExpedientes?: number;
+  conteoPorEstado?: Partial<Record<Estado, number>>;
 };
 
 type Props = {
@@ -173,6 +176,22 @@ export default function ClienteDetalle({
 
   // STATS sobre TODOS los expedientes del cliente (no los filtrados)
   const stats = useMemo(() => {
+    // La ficha compacta agrupada por RFC ya contiene estos agregados. Se muestran
+    // mientras llega la lista diferida para evitar KPIs temporalmente en cero.
+    if (lista.length === 0 && cliente?.totalExpedientes != null) {
+      const distribucion = cliente.conteoPorEstado ?? {};
+      const activos = (Object.entries(distribucion) as [Estado, number][])
+        .filter(([estado]) => !TERMINALES.includes(estado))
+        .reduce((total, [, cantidad]) => total + cantidad, 0);
+      return {
+        total: cliente.totalExpedientes,
+        montoTotal: cliente.montoTotal ?? 0,
+        distribucion,
+        activos,
+        urgentes: distribucion.INCOMPLETE_EXPIRED ?? 0,
+      };
+    }
+
     const total = lista.length;
     const montoTotal = lista.reduce((s, e) => s + (e.montoEstimado ?? 0), 0);
     const distribucion = lista.reduce(
@@ -187,7 +206,7 @@ export default function ClienteDetalle({
       (e) => e.estado === "INCOMPLETE_EXPIRED",
     ).length;
     return { total, montoTotal, distribucion, activos, urgentes };
-  }, [lista]);
+  }, [cliente, lista]);
 
   // FILTRADOS: estado + operación + búsqueda; ordenados por prioridad de estado
   const filtrados = useMemo(() => {
@@ -514,7 +533,6 @@ export default function ClienteDetalle({
               ) : (
                 <AnimatePresence mode="popLayout">
                   {mostrados.map((exp, i) => {
-                    const c = estadoCfg(exp.estado);
                     const vencido = exp.estado === "INCOMPLETE_EXPIRED";
                     return (
                       <motion.div

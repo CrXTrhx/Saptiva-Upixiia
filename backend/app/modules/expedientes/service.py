@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.codes import (
@@ -22,6 +22,7 @@ from app.integrations import email
 from app.models import (
     AppUser,
     CaseChecklistItem,
+    CaseEvent,
     CaseFile,
     CatChecklistTemplate,
     Document,
@@ -197,13 +198,114 @@ def list_expedientes(
     return cases
 
 
+_ESTADOS_TERMINALES = (
+    CaseStatus.CANCELLED,
+    CaseStatus.ARCHIVED,
+    CaseStatus.COMPLETE,
+    CaseStatus.INCOMPLETE_EXPIRED,
+)
+
+_CHECKLIST_FALTANTE = (
+    ChecklistStatus.PENDING,
+    ChecklistStatus.REJECTED,
+    ChecklistStatus.EXPIRED,
+)
+
+
 def _prioridad(*, case: CaseFile, ultima_map: dict) -> int:
     ultima = serializers.ultima_actividad_de(case, ultima_map)
     now = dt.datetime.now(dt.timezone.utc)
     inactivo = ultima is not None and (now - ultima) > _INACTIVIDAD
-    if inactivo and case.status_code in (CaseStatus.CAPTURING, CaseStatus.RECEIVING):
+    if inactivo and case.status_code not in _ESTADOS_TERMINALES:
         return 0
     return _ESTADO_PRIORIDAD.get(case.status_code, 5)
+
+
+def _orden_prioridad_sql():
+    """Replica en SQL el orden visible del frontend para paginar correctamente."""
+    ultima = func.coalesce(
+        select(func.max(CaseEvent.event_at))
+        .where(
+            CaseEvent.case_file_id == CaseFile.id,
+            CaseEvent.active_flag == 1,
+        )
+        .correlate(CaseFile)
+        .scalar_subquery(),
+        CaseFile.updated_at,
+        CaseFile.created_at,
+    )
+    inactivo = ultima < (dt.datetime.now(dt.timezone.utc) - _INACTIVIDAD)
+    return case(
+        (
+            and_(CaseFile.status_code.notin_(_ESTADOS_TERMINALES), inactivo),
+            0,
+        ),
+        (CaseFile.status_code == CaseStatus.INCOMPLETE_EXPIRED, 0),
+        (CaseFile.status_code == CaseStatus.IN_VALIDATION, 1),
+        (CaseFile.status_code == CaseStatus.RECEIVING, 2),
+        (CaseFile.status_code == CaseStatus.CAPTURING, 3),
+        (CaseFile.status_code == CaseStatus.COMPLETE, 4),
+        else_=5,
+    )
+
+
+def list_expedientes_pagina(
+    db: Session,
+    *,
+    search: str | None = None,
+    estado: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+    doc_faltante: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[CaseFile], int]:
+    """Página ordenada por prioridad sin cargar la colección completa en memoria."""
+    condiciones = [CaseFile.active_flag == 1]
+
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        condiciones.append(
+            or_(
+                CaseFile.client_name.ilike(like),
+                CaseFile.client_rfc.ilike(like),
+                CaseFile.code.ilike(like),
+                CaseFile.client_phone.ilike(like),
+                CaseFile.client_email.ilike(like),
+            )
+        )
+    if estado:
+        condiciones.append(CaseFile.status_code == estado)
+    if desde:
+        condiciones.append(CaseFile.created_at >= dt.datetime.fromisoformat(desde))
+    if hasta:
+        condiciones.append(CaseFile.created_at <= dt.datetime.fromisoformat(hasta))
+    if doc_faltante:
+        condiciones.append(
+            select(CaseChecklistItem.id)
+            .where(
+                CaseChecklistItem.case_file_id == CaseFile.id,
+                CaseChecklistItem.active_flag == 1,
+                CaseChecklistItem.document_type_code == doc_faltante,
+                CaseChecklistItem.status_code.in_(_CHECKLIST_FALTANTE),
+            )
+            .correlate(CaseFile)
+            .exists()
+        )
+
+    total = db.execute(
+        select(func.count()).select_from(CaseFile).where(*condiciones)
+    ).scalar_one()
+    cases = list(
+        db.execute(
+            select(CaseFile)
+            .where(*condiciones)
+            .order_by(_orden_prioridad_sql(), CaseFile.created_at, CaseFile.id)
+            .limit(limit)
+            .offset(offset)
+        ).scalars()
+    )
+    return cases, int(total)
 
 
 def conteos(db: Session) -> dict[str, int]:
