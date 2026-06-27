@@ -51,7 +51,7 @@ export const DOCUMENTO_REQUERIDO_LABELS: Record<DocumentoRequerido, string> = {
   OFFICIAL_ID: "INE",
   CURP: "CURP",
   TAX_STATUS_CERT: "Constancia de Situación Fiscal",
-  PROOF_OF_ADDRESS: "Comprobante",
+  PROOF_OF_ADDRESS: "Comprobante de Domicilio",
 };
 
 export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
