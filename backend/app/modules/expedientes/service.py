@@ -10,16 +10,21 @@ from sqlalchemy.orm import Session
 from app.core.codes import (
     CaseStatus,
     ChecklistStatus,
+    DocStatus,
+    DocType,
     EventType,
     OPEN_STATUSES,
+    RejectionReason,
 )
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError
+from app.integrations import email
 from app.models import (
     AppUser,
     CaseChecklistItem,
     CaseFile,
     CatChecklistTemplate,
+    Document,
     InternalNote,
 )
 from app.modules.eventos import registrar_evento
@@ -263,22 +268,122 @@ def agregar_nota(db: Session, case: CaseFile, texto: str, user: AppUser) -> Inte
     return nota
 
 
-def instrucciones_texto(case: CaseFile) -> str:
-    return (
-        f"Hola, para tu tramite con Centur usa este codigo de expediente: {case.code}\n\n"
-        f"Envia tus documentos (INE, CURP, Constancia de Situacion Fiscal y comprobante "
-        f"de domicilio) por cualquiera de estos medios, incluyendo SIEMPRE el codigo "
-        f"{case.code} en el mensaje:\n"
-        f"  - WhatsApp: {settings.system_whatsapp}\n"
-        f"  - Correo: {settings.system_email}\n\n"
-        f"Gracias."
+# Etiquetas en espanol para el correo al cliente (copy humano, no contrato de API).
+_DOC_TYPE_ES = {
+    DocType.OFFICIAL_ID: "INE",
+    DocType.CURP: "CURP",
+    DocType.TAX_STATUS_CERT: "Constancia de Situacion Fiscal",
+    DocType.PROOF_OF_ADDRESS: "Comprobante de domicilio",
+}
+# Redactados para encajar tras "lo rechazamos porque ..." (ver _documentos_pendientes).
+_REJECTION_ES = {
+    RejectionReason.ILLEGIBLE: "no se leia con claridad",
+    RejectionReason.TYPE_MISMATCH: "no coincidia con el documento solicitado",
+    RejectionReason.EXPIRED: "estaba vencido",
+    RejectionReason.OTHER: "no era valido",
+}
+
+
+def _motivo_rechazo(db: Session, case_id, doc_type: str) -> str:
+    """Motivo (en espanol) del documento rechazado mas reciente de un tipo."""
+    doc = db.execute(
+        select(Document)
+        .where(
+            Document.case_file_id == case_id,
+            Document.active_flag == 1,
+            Document.status_code == DocStatus.REJECTED,
+            func.coalesce(Document.detected_type_code, Document.declared_type_code)
+            == doc_type,
+        )
+        .order_by(Document.reception_at.desc())
+    ).scalars().first()
+    if doc and doc.rejection_reason_code:
+        return _REJECTION_ES.get(doc.rejection_reason_code, "no era valido")
+    return "necesita revisarse"
+
+
+def _documentos_pendientes(db: Session, case: CaseFile) -> list[tuple[str, str]]:
+    """[(etiqueta, motivo)] de los documentos que el cliente debe enviar o reenviar.
+
+    Incluye los que faltan (PENDING), fueron rechazados (REJECTED) o vencieron
+    (EXPIRED); omite los ya recibidos/validados (no requieren accion del cliente).
+    """
+    items = db.execute(
+        select(CaseChecklistItem)
+        .where(
+            CaseChecklistItem.case_file_id == case.id,
+            CaseChecklistItem.active_flag == 1,
+        )
+        .order_by(CaseChecklistItem.created_at)
+    ).scalars()
+    pendientes: list[tuple[str, str]] = []
+    for item in items:
+        estado = item.status_code
+        if estado in (ChecklistStatus.VALIDATED, ChecklistStatus.RECEIVED):
+            continue
+        label = _DOC_TYPE_ES.get(item.document_type_code, item.document_type_code)
+        if estado == ChecklistStatus.REJECTED:
+            motivo = f"lo rechazamos porque {_motivo_rechazo(db, case.id, item.document_type_code)}"
+        elif estado == ChecklistStatus.EXPIRED:
+            motivo = "el que tenemos ya esta vencido"
+        else:  # PENDING
+            motivo = "aun no lo recibimos"
+        pendientes.append((label, motivo))
+    return pendientes
+
+
+def instrucciones_texto(db: Session, case: CaseFile) -> str:
+    nombre = (case.client_name or "").strip().split(" ")[0] or "cliente"
+    codigo = case.code
+    correo = settings.system_email
+    pendientes = _documentos_pendientes(db, case)
+
+    lineas = [f"Hola {nombre},", ""]
+
+    if not pendientes:
+        lineas += [
+            f"Ya recibimos todos los documentos de tu expediente {codigo}.",
+            "Por ahora no necesitas enviar nada mas; te avisaremos del siguiente paso.",
+            "",
+            "Gracias.",
+        ]
+        return "\n".join(lineas)
+
+    lineas.append(
+        f"Para continuar con tu expediente {codigo} todavia nos faltan estos documentos:"
     )
+    lineas.append("")
+    for label, motivo in pendientes:
+        lineas.append(f"  - {label} ({motivo})" if motivo else f"  - {label}")
+    lineas += [
+        "",
+        f"Envialos por correo a {correo} e incluye el codigo {codigo} en el asunto; "
+        "asi los asociamos a tu expediente automaticamente.",
+        "",
+        "Recomendaciones:",
+        "  - Adjunta cada documento en PDF o foto (max. 15 MB por archivo).",
+        "  - Puedes mandarlos todos en un solo correo o uno por uno.",
+        "",
+        "Gracias.",
+    ]
+    return "\n".join(lineas)
 
 
-def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> None:
-    # Stub de canal: aqui iria el envio real por WhatsApp/correo.
+def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> str:
+    """Envia las instrucciones por correo al cliente del expediente (Mailgun).
+
+    Devuelve el destinatario. Lanza ConflictError si el expediente no tiene correo
+    registrado o si el envio falla.
+    """
+    destinatario = (case.client_email or "").strip()
+    if not destinatario:
+        raise ConflictError("El expediente no tiene un correo registrado")
+    cuerpo = instrucciones_texto(db, case)
+    if not email.send_email(destinatario, case.code, cuerpo):
+        raise ConflictError("No se pudo enviar el correo")
     registrar_evento(
         db, case.id, EventType.INSTRUCTIONS_RESENT,
-        "Instrucciones reenviadas al cliente",
+        f"Instrucciones reenviadas por correo a {destinatario}",
         actor=user.email, actor_user_id=user.id,
     )
+    return destinatario

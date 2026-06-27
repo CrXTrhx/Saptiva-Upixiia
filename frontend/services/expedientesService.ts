@@ -16,6 +16,15 @@ import type {
   TipoOperacion,
 } from "@/lib/types";
 
+// Vista previa del correo de instrucciones que arma el backend (GET /instrucciones).
+export type InstruccionesPreview = {
+  codigo: string;
+  destinatario: string; // correo del cliente registrado en el expediente
+  remitente: string; // remitente configurado (MAIL_FROM)
+  asunto: string;
+  texto: string; // cuerpo: instrucciones + documentos pendientes y su motivo
+};
+
 // --- Priority sort (business rule: urgents first, then validation, then missing docs, then rest) ---
 // El backend ya ordena la lista por prioridad; estos helpers se reutilizan para la
 // vista "Por cliente", que se agrupa en el cliente porque el backend no la expone.
@@ -275,6 +284,13 @@ export const expedientesService = {
     await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
       method: "POST",
     });
+  },
+
+  // Vista previa del correo de instrucciones (la arma el backend): destinatario,
+  // remitente, asunto y cuerpo (con los documentos pendientes y su motivo). La usa
+  // el menú "Reenviar instrucciones" (panel de correo + "Copiar instrucciones").
+  async getInstrucciones(id: string): Promise<InstruccionesPreview> {
+    return apiClient<InstruccionesPreview>(`/expedientes/${id}/instrucciones`);
   },
 
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {

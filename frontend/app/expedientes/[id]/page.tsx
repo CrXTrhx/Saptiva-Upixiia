@@ -8,6 +8,7 @@ import {
   ArrowLeft, ChevronRight, Check, X, Clock, AlertTriangle,
   FileText, Upload, MessageSquare, Mail, Phone, Pencil, Send,
   Archive, Ban, ArrowRight, Sparkles, Plus, RefreshCw, CornerUpLeft,
+  ChevronDown, MessageCircle, Copy, Loader2,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazarModal";
@@ -16,7 +17,7 @@ import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpe
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
 import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
 import { Modal } from "@/components/ui/Modal";
-import { expedientesService } from "@/services/expedientesService";
+import { expedientesService, type InstruccionesPreview } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import {
   DOCUMENTOS_REQUERIDOS,
@@ -180,6 +181,315 @@ function ActionBtn({ icon: Icon, children, onClick, danger, disabled }: {
       <Icon size={13} strokeWidth={1.75} />
       {children}
     </button>
+  );
+}
+
+// ═══════════════════════════════════════════
+// "Reenviar instrucciones" → menú desplegable (Correo / WhatsApp / Copiar)
+// - "Enviar por correo" abre un panel con la vista previa del correo (onAbrirCorreo).
+// - "Enviar por WhatsApp" queda deshabilitado mientras no se pase onEnviarWhatsApp
+//   ("No disponible por ahora").
+// - "Copiar instrucciones" copia el texto que devuelve el host.
+// El componente NO hace fetch; el host conecta los callbacks a la API ya existente.
+// Maneja apertura/cierre, click-fuera, Escape, loading y toasts (vía onToast).
+//
+// EJEMPLO_USO:
+//   <ReenviarInstruccionesMenu
+//     expediente={exp}
+//     disabled={esCancelado}
+//     onToast={showToast}
+//     onAbrirCorreo={(exp) => abrirCorreoModal()}                 // abre el panel
+//     onCopiarInstrucciones={async (exp) => (await api.getInstrucciones(exp.id)).texto}
+//     // onEnviarWhatsApp={async (exp) => { ... }}  // opcional; sin él queda deshabilitado
+//   />
+// ═══════════════════════════════════════════
+
+type ReenviarExpediente = {
+  id: string;
+  clienteCorreo?: string | null;
+  clienteTelefono?: string | null;
+  // Fallback genérico por si el host pasa otro shape (defensivo, sin asumir más).
+  correo?: string | null;
+  telefono?: string | null;
+};
+
+async function copiarAlPortapapeles(texto: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return;
+  } catch {
+    // Fallback para navegadores/contextos sin Clipboard API.
+    const ta = document.createElement("textarea");
+    ta.value = texto;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (!ok) throw new Error("No se pudo copiar");
+  }
+}
+
+function ReenviarInstruccionesMenu({
+  expediente,
+  onAbrirCorreo,
+  onEnviarWhatsApp,
+  onCopiarInstrucciones,
+  onToast,
+  disabled,
+}: {
+  expediente: ReenviarExpediente;
+  onAbrirCorreo?: (expediente: ReenviarExpediente) => void;
+  onEnviarWhatsApp?: (expediente: ReenviarExpediente) => Promise<void>;
+  onCopiarInstrucciones?: (expediente: ReenviarExpediente) => Promise<string>;
+  onToast?: (msg: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [accion, setAccion] = useState<null | "whatsapp" | "copiar">(null);
+
+  // Cerrar con Escape mientras el menú está abierto.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const correo = expediente?.clienteCorreo ?? expediente?.correo ?? "";
+  const telefono = expediente?.clienteTelefono ?? expediente?.telefono ?? "";
+  const cargando = accion !== null;
+  const whatsappListo = !!onEnviarWhatsApp; // por ahora no se pasa → deshabilitado
+
+  function abrirCorreo() {
+    if (!correo) return;
+    setOpen(false);
+    onAbrirCorreo?.(expediente);
+  }
+
+  // Acciones asíncronas con loading + toast (WhatsApp cuando exista; Copiar).
+  async function correr(a: "whatsapp" | "copiar") {
+    setOpen(false);
+    setAccion(a);
+    try {
+      if (a === "whatsapp") {
+        await onEnviarWhatsApp?.(expediente);
+        onToast?.("Instrucciones enviadas por WhatsApp");
+      } else {
+        const texto = (await onCopiarInstrucciones?.(expediente)) ?? "";
+        await copiarAlPortapapeles(texto);
+        onToast?.("Instrucciones copiadas al portapapeles");
+      }
+    } catch {
+      onToast?.(
+        a === "whatsapp"
+          ? "No se pudieron enviar por WhatsApp"
+          : "No se pudieron copiar las instrucciones",
+      );
+    } finally {
+      setAccion(null);
+    }
+  }
+
+  type Opcion = {
+    key: "correo" | "whatsapp" | "copiar";
+    show: boolean;
+    Icon: typeof Mail;
+    label: string;
+    deshabilitada: boolean;
+    motivo: string;
+    onClick: () => void;
+  };
+
+  const todasLasOpciones: Opcion[] = [
+    {
+      key: "correo",
+      show: !!onAbrirCorreo,
+      Icon: Mail,
+      label: "Enviar por correo",
+      deshabilitada: !correo,
+      motivo: "Sin correo registrado",
+      onClick: abrirCorreo,
+    },
+    {
+      key: "whatsapp",
+      show: true,
+      Icon: MessageCircle,
+      label: "Enviar por WhatsApp",
+      deshabilitada: !whatsappListo || !telefono,
+      motivo: !whatsappListo ? "No disponible por ahora" : "Sin teléfono registrado",
+      onClick: () => correr("whatsapp"),
+    },
+    {
+      key: "copiar",
+      show: !!onCopiarInstrucciones,
+      Icon: Copy,
+      label: "Copiar instrucciones",
+      deshabilitada: false,
+      motivo: "",
+      onClick: () => correr("copiar"),
+    },
+  ];
+  const opciones = todasLasOpciones.filter((o) => o.show);
+
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled || cargando}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+        style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+        onMouseEnter={(e) => { if (!disabled && !cargando) e.currentTarget.style.borderColor = "#B5AFA9"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#E5DED6"; }}
+      >
+        {cargando ? (
+          <Loader2 size={13} strokeWidth={1.75} className="animate-spin" />
+        ) : (
+          <Send size={13} strokeWidth={1.75} />
+        )}
+        {cargando ? "Copiando…" : "Reenviar instrucciones"}
+        {!cargando && (
+          <ChevronDown
+            size={12}
+            strokeWidth={1.75}
+            className="ml-auto"
+            style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}
+          />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <>
+            {/* Overlay invisible: cierra al hacer clic fuera. */}
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              role="menu"
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: EASE_OUT }}
+              className="absolute right-0 top-full mt-2 z-50 min-w-[220px] overflow-hidden rounded-xl bg-white"
+              style={{ border: "1px solid #E5DED6", boxShadow: "0 10px 30px rgba(17,24,39,0.12)" }}
+            >
+              {opciones.map(({ key, Icon, label, deshabilitada, motivo, onClick }) => {
+                const itemDisabled = deshabilitada || cargando;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="menuitem"
+                    disabled={itemDisabled}
+                    onClick={onClick}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-[13px] transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    style={{ color: "#5C5957", opacity: itemDisabled ? 0.5 : 1 }}
+                    onMouseEnter={(e) => { if (!itemDisabled) e.currentTarget.style.backgroundColor = "#FAF6F1"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                  >
+                    <Icon size={14} strokeWidth={1.75} style={{ color: "#989396" }} className="shrink-0" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block">{label}</span>
+                      {deshabilitada && motivo && (
+                        <span className="block text-[11px]" style={{ color: "#B5AFA9" }}>{motivo}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Fila "De / Para / Asunto" dentro del panel de vista previa del correo.
+function CampoCorreo({ label, value, mono, warn }: { label: string; value: string; mono?: boolean; warn?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="w-14 shrink-0 text-[11px] uppercase tracking-wider" style={{ color: "#B5AFA9" }}>{label}</span>
+      <span className={`text-[13px] min-w-0 break-words ${mono ? "font-mono tabular-nums" : ""}`} style={{ color: warn ? "#9C4B2E" : "#302F2D" }}>{value}</span>
+    </div>
+  );
+}
+
+// Panel de vista previa del correo de instrucciones: muestra De/Para/Asunto/Cuerpo
+// (lo arma el backend) y permite enviarlo realmente al correo del expediente.
+function PreviewCorreoModal({
+  open,
+  onClose,
+  data,
+  cargando,
+  enviando,
+  onEnviar,
+}: {
+  open: boolean;
+  onClose: () => void;
+  data: InstruccionesPreview | null;
+  cargando: boolean;
+  enviando: boolean;
+  onEnviar: () => void;
+}) {
+  const sinCorreo = !data?.destinatario;
+  return (
+    <Modal open={open} onClose={onClose} title="Reenviar instrucciones por correo" maxWidth="max-w-2xl">
+      {cargando || !data ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={22} strokeWidth={1.75} className="animate-spin" style={{ color: "#F19B42" }} />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-[12px]" style={{ color: "#989396" }}>
+            Vista previa del correo que se enviará al cliente del expediente.
+          </p>
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid #E5DED6" }}>
+            <div className="px-4 py-3 space-y-1.5" style={{ backgroundColor: "#FAF6F1", borderBottom: "1px solid #E5DED6" }}>
+              <CampoCorreo label="De" value={data.remitente || "—"} />
+              <CampoCorreo label="Para" value={data.destinatario || "Sin correo registrado"} warn={sinCorreo} />
+              <CampoCorreo label="Asunto" value={data.asunto} mono />
+            </div>
+            <div className="px-4 py-4 max-h-[42vh] overflow-y-auto" style={{ backgroundColor: "#FFFFFF" }}>
+              <pre className="whitespace-pre-wrap break-words text-[13px] leading-relaxed" style={{ color: "#302F2D", fontFamily: "inherit" }}>{data.texto}</pre>
+            </div>
+          </div>
+          {sinCorreo && (
+            <p className="flex items-center gap-1.5 text-[12px]" style={{ color: "#9C4B2E" }}>
+              <AlertTriangle size={13} strokeWidth={1.75} className="shrink-0" />
+              Este expediente no tiene correo registrado. Edita los datos del cliente para poder enviar.
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={enviando}
+              className="text-[12px] font-medium px-3 py-2 rounded-md bg-white cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={onEnviar}
+              disabled={sinCorreo || enviando}
+              className="flex items-center gap-1.5 text-[12px] font-medium px-3.5 py-2 rounded-md cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-white"
+              style={{ backgroundColor: "#302F2D" }}
+            >
+              {enviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} strokeWidth={1.75} />}
+              {enviando ? "Enviando…" : "Enviar correo"}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -456,11 +766,19 @@ function DetalleContent() {
 
   const [detalleAbiertoTipo, setDetalleAbiertoTipo] = useState<DocumentoRequerido | null>(null);
 
-  const [reenviarLoading, setReenviarLoading] = useState(false);
   const [llmLoading, setLlmLoading] = useState(false);
   const [notaLoading, setNotaLoading] = useState(false);
   const [nuevaNota, setNuevaNota] = useState("");
   const [historialOpen, setHistorialOpen] = useState(false);
+
+  // Panel de vista previa del correo de instrucciones (De/Para/Asunto/Cuerpo).
+  // `cargando` = trayendo la vista previa del backend; `enviando` = enviando a Mailgun.
+  const [correoPreview, setCorreoPreview] = useState<{
+    open: boolean;
+    cargando: boolean;
+    enviando: boolean;
+    data: InstruccionesPreview | null;
+  }>({ open: false, cargando: false, enviando: false, data: null });
 
   const checklist = detalle?.checklist ?? [];
   const documentos = detalle?.documentos ?? [];
@@ -612,9 +930,33 @@ function DetalleContent() {
     }
   }
 
-  async function handleReenviar() {
-    setReenviarLoading(true);
-    try { await expedientesService.reenviarInstrucciones(id); showToast("Instrucciones reenviadas"); } catch { showToast("Error al reenviar instrucciones"); } finally { setReenviarLoading(false); }
+  // Abre el panel y trae la vista previa del correo (la arma el backend con los
+  // documentos pendientes y su motivo). Si falla, cierra y avisa.
+  async function abrirCorreoPreview() {
+    setCorreoPreview({ open: true, cargando: true, enviando: false, data: null });
+    try {
+      const data = await expedientesService.getInstrucciones(id);
+      setCorreoPreview((s) => ({ ...s, cargando: false, data }));
+    } catch {
+      setCorreoPreview({ open: false, cargando: false, enviando: false, data: null });
+      showToast("No se pudo cargar la vista previa del correo");
+    }
+  }
+
+  // Envía realmente las instrucciones por correo al cliente del expediente (Mailgun).
+  async function enviarCorreoInstrucciones() {
+    setCorreoPreview((s) => ({ ...s, enviando: true }));
+    try {
+      await expedientesService.reenviarInstrucciones(id);
+      showToast("Instrucciones enviadas por correo");
+      setCorreoPreview({ open: false, cargando: false, enviando: false, data: null });
+      // Refresca el detalle para que aparezca el evento "Instrucciones reenviadas".
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+    } catch {
+      showToast("No se pudieron enviar las instrucciones por correo");
+      setCorreoPreview((s) => ({ ...s, enviando: false }));
+    }
   }
 
   async function handleCancelar(motivo: string) {
@@ -774,7 +1116,14 @@ function DetalleContent() {
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
-              <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading || esCancelado}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
+              <ReenviarInstruccionesMenu
+                expediente={exp}
+                disabled={esCancelado}
+                onToast={showToast}
+                onAbrirCorreo={() => abrirCorreoPreview()}
+                onCopiarInstrucciones={async () => (await expedientesService.getInstrucciones(id)).texto}
+                // WhatsApp se omite a propósito: por ahora queda deshabilitado ("No disponible por ahora").
+              />
               {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
@@ -1287,6 +1636,15 @@ function DetalleContent() {
       {modal.type === "llm-respuesta" && (
         <RespuestaLLMModal consulta={modal.consulta} expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }} onClose={() => setModal({ type: "none" })} />
       )}
+
+      <PreviewCorreoModal
+        open={correoPreview.open}
+        onClose={() => { if (!correoPreview.enviando) setCorreoPreview({ open: false, cargando: false, enviando: false, data: null }); }}
+        data={correoPreview.data}
+        cargando={correoPreview.cargando}
+        enviando={correoPreview.enviando}
+        onEnviar={enviarCorreoInstrucciones}
+      />
 
       {/* TOAST */}
       <AnimatePresence>
