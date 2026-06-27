@@ -62,7 +62,7 @@ const tipoDetectadoConfig = {
   OFFICIAL_ID: { label: "INE", color: "#8B5CF6", bg: "#EDE9FE", text: "#6D28D9" },
   CURP: { label: "CURP", color: "#3B82F6", bg: "#DBEAFE", text: "#1E40AF" },
   TAX_STATUS_CERT: { label: "CSF", color: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
-  PROOF_OF_ADDRESS: { label: "Comprobante", color: "#10B981", bg: "#D1FAE5", text: "#047857" },
+  PROOF_OF_ADDRESS: { label: "Comprobante de Domicilio", color: "#10B981", bg: "#D1FAE5", text: "#047857" },
   UNKNOWN: { label: "Desconocido", color: "#9CA3AF", bg: "#F3F4F6", text: "#6B7280" },
 };
 
@@ -231,7 +231,7 @@ const TYPE_OPTIONS = [
   { value: "OFFICIAL_ID", label: "INE" },
   { value: "CURP", label: "CURP" },
   { value: "TAX_STATUS_CERT", label: "CSF" },
-  { value: "PROOF_OF_ADDRESS", label: "Comprobante" },
+  { value: "PROOF_OF_ADDRESS", label: "Comprobante de Domicilio" },
   { value: "UNKNOWN", label: "Desconocido" },
 ];
 

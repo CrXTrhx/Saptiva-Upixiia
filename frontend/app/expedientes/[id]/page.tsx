@@ -244,8 +244,8 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
   );
 }
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior }: {
-  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior, readOnly }: {
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void; readOnly?: boolean;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.PENDING;
   const ccfg = canalConfig[doc.canal];
@@ -321,21 +321,23 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersio
             Ver versión anterior · {new Date(doc.versionAnterior.fechaRecepcion).toLocaleDateString("es-MX")}
           </button>
         )}
-        <div className="flex items-center gap-2 flex-wrap">
-          {doc.estado !== "VALIDATED" && (
-            <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
-              <Check size={11} strokeWidth={2.25} /> Validar
+        {!readOnly && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {doc.estado !== "VALIDATED" && (
+              <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
+                <Check size={11} strokeWidth={2.25} /> Validar
+              </button>
+            )}
+            {doc.estado !== "REJECTED" && (
+              <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
+                <X size={11} /> Rechazar
+              </button>
+            )}
+            <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
+              <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
             </button>
-          )}
-          {doc.estado !== "REJECTED" && (
-            <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
-              <X size={11} /> Rechazar
-            </button>
-          )}
-          <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
-            <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -681,6 +683,7 @@ function DetalleContent() {
 
   const validadosCount = checklist.filter((c) => c.estado === "VALIDATED").length;
   const estadoCfg = estadoGlobalConfig[exp.estado];
+  const esCancelado = exp.estado === "CANCELLED";
 
   // ═══════════════════════════════════════
   // RENDER — MAIN VIEW
@@ -740,6 +743,16 @@ function DetalleContent() {
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-5">
 
+        {/* BANNER CANCELADO */}
+        {esCancelado && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ backgroundColor: "#EAE7E6", border: "1px solid #D6D2D0" }}>
+            <Ban size={14} strokeWidth={1.75} style={{ color: "#5C5957", flexShrink: 0 }} />
+            <p className="text-[13px] font-medium" style={{ color: "#5C5957" }}>
+              Este expediente está cancelado y es de solo lectura — no se permiten modificaciones.
+            </p>
+          </div>
+        )}
+
         {/* 2. BLOQUE A — FICHA */}
         <Card className="p-6" hover={false} delay={0.02}>
           <div className="flex items-start justify-between flex-wrap gap-4">
@@ -760,8 +773,8 @@ function DetalleContent() {
               </div>
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
-              <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
+              <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading || esCancelado}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
               {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
@@ -866,7 +879,7 @@ function DetalleContent() {
                 >
                   Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
               </Card>
             </motion.div>
           )}
@@ -884,10 +897,10 @@ function DetalleContent() {
                 icon={FileText}
                 right={
                   <button
-                    onClick={() => puedeSubirDocumento && setModal({ type: "subir", modo: "nuevo" })}
-                    disabled={!puedeSubirDocumento}
+                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esCancelado}
                     className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors disabled:cursor-not-allowed"
-                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento ? "#5C5957" : "#B5AFA9" }}
+                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9" }}
                   >
                     <Plus size={12} strokeWidth={2} /> Subir documento manual
                   </button>
@@ -899,12 +912,12 @@ function DetalleContent() {
                 <div className="text-center py-8">
                   <p className="text-[12px] mb-3" style={{ color: "#989396" }}>Aún no hay documentos recibidos</p>
                   <button
-                    onClick={() => puedeSubirDocumento && setModal({ type: "subir", modo: "nuevo" })}
-                    disabled={!puedeSubirDocumento}
+                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esCancelado}
                     className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer disabled:cursor-not-allowed"
                     style={{
-                      backgroundColor: puedeSubirDocumento ? "#FAF6F1" : "#F0F0F0",
-                      color: puedeSubirDocumento ? "#5C5957" : "#B5AFA9",
+                      backgroundColor: puedeSubirDocumento && !esCancelado ? "#FAF6F1" : "#F0F0F0",
+                      color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9",
                       border: "1px solid #F0EBE5",
                     }}
                   >
@@ -914,7 +927,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
                   ))}
                 </div>
               )}
@@ -933,7 +946,7 @@ function DetalleContent() {
                   <button
                     key={q}
                     onClick={() => handleConsultarLLM(q)}
-                    disabled={llmLoading}
+                    disabled={llmLoading || esCancelado}
                     className="w-full flex items-center justify-between gap-2 text-[13px] px-3.5 py-2.5 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
                     style={{ backgroundColor: "#FAF6F1", border: "1px solid #E5DED6", color: "#5C5957" }}
                     onMouseEnter={e => { if (!llmLoading) { e.currentTarget.style.borderColor = "#F19B42"; e.currentTarget.style.color = "#302F2D"; } }}
@@ -952,19 +965,20 @@ function DetalleContent() {
               <div className="mb-4">
                 <textarea
                   rows={2}
-                  placeholder="Escribe una nota interna…"
+                  placeholder={esCancelado ? "No se pueden agregar notas a un expediente cancelado" : "Escribe una nota interna…"}
                   value={nuevaNota}
-                  onChange={(e) => setNuevaNota(e.target.value)}
-                  className="w-full text-[13px] px-3 py-2 rounded-md resize-none bg-white transition-colors"
-                  style={{ border: "1px solid #E5DED6", color: "#302F2D", outline: "none" }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#F19B42"}
+                  onChange={(e) => !esCancelado && setNuevaNota(e.target.value)}
+                  disabled={esCancelado}
+                  className="w-full text-[13px] px-3 py-2 rounded-md resize-none bg-white transition-colors disabled:cursor-not-allowed"
+                  style={{ border: "1px solid #E5DED6", color: esCancelado ? "#B5AFA9" : "#302F2D", outline: "none", backgroundColor: esCancelado ? "#F9F8F7" : "#FFFFFF" }}
+                  onFocus={(e) => { if (!esCancelado) e.currentTarget.style.borderColor = "#F19B42"; }}
                   onBlur={(e) => e.currentTarget.style.borderColor = "#E5DED6"}
                 />
                 <button
-                  onClick={() => { if (nuevaNota.trim()) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
-                  disabled={!nuevaNota.trim() || notaLoading}
+                  onClick={() => { if (nuevaNota.trim() && !esCancelado) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
+                  disabled={!nuevaNota.trim() || notaLoading || esCancelado}
                   className="mt-2 flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer transition-colors disabled:cursor-not-allowed"
-                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading ? "#FFFFFF" : "#B5AFA9" }}
+                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading && !esCancelado ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading && !esCancelado ? "#FFFFFF" : "#B5AFA9" }}
                 >
                   <Plus size={12} strokeWidth={2} /> Agregar nota
                 </button>
@@ -1001,7 +1015,17 @@ function DetalleContent() {
         {/* 6. BLOQUE H — VALIDACIÓN FINAL */}
         <Card className="p-6" hover={false} delay={0.24}>
           <SectionTitle icon={Check}>Validación final</SectionTitle>
-          {exp.estado === "COMPLETE" ? (
+          {esCancelado ? (
+            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "#EAE7E6" }}>
+              <div className="flex items-center justify-center h-9 w-9 rounded-full shrink-0" style={{ backgroundColor: "#989396" }}>
+                <Ban size={16} strokeWidth={2} color="white" />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold" style={{ color: "#5C5957" }}>Expediente cancelado</p>
+                <p className="text-[11px]" style={{ color: "#7A7470" }}>No es posible realizar validaciones sobre este expediente</p>
+              </div>
+            </div>
+          ) : exp.estado === "COMPLETE" ? (
             <div className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap" style={{ backgroundColor: "#ECF0E8" }}>
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-9 w-9 rounded-full" style={{ backgroundColor: "#536648" }}>
