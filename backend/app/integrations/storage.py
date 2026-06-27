@@ -13,6 +13,7 @@ Backend configurable (STORAGE_BACKEND):
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,8 +23,11 @@ from app.core.config import settings
 _LOCAL_DIR = Path(__file__).resolve().parents[2] / "storage_local"
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _PRESIGN_EXPIRES = 3600  # 1 hora
+_PRESIGN_CACHE_TTL = 55 * 60  # reutilizar la URL durante 55 min (5 min antes de expirar)
 
 _client_singleton = None
+# key R2 → (url_firmada, timestamp_expira) — evita regenerar en cada poll
+_presign_cache: dict[str, tuple[str, float]] = {}
 
 
 @dataclass
@@ -177,13 +181,18 @@ def resolve_url(stored_value: str | None) -> str | None:
         return stored_value
     if stored_value.startswith("http://") or stored_value.startswith("https://"):
         return stored_value
-    # Es una key de R2 -> URL firmada
+    # Es una key de R2 -> URL firmada (cacheada para no regenerar en cada poll)
+    cached = _presign_cache.get(stored_value)
+    if cached and time.time() < cached[1]:
+        return cached[0]
     try:
-        return _r2_client().generate_presigned_url(
+        url = _r2_client().generate_presigned_url(
             "get_object",
             Params={"Bucket": settings.r2_bucket, "Key": stored_value},
             ExpiresIn=_PRESIGN_EXPIRES,
         )
+        _presign_cache[stored_value] = (url, time.time() + _PRESIGN_CACHE_TTL)
+        return url
     except Exception:
         return stored_value
 
