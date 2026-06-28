@@ -93,7 +93,7 @@ En el servicio → pestaña **Environment**. Las que tienen valor fijo ya vienen
 | `ADMIN_EMAIL` | `admin@centur.com` | fijo |
 | `ADMIN_PASSWORD` | la que quieras para el admin | ✅ pegar |
 | `ADMIN_NAME` | `Administrador` | fijo |
-| `CORS_ORIGINS` | URL del frontend (ver Paso 7). Provisional: `https://<algo>.vercel.app` | ✅ pegar |
+| `CORS_ORIGINS` | URL del frontend (ver Paso 7). Provisional: `https://<algo>.pages.dev` | ✅ pegar |
 | `SYSTEM_WHATSAPP` | `+52 55 0000 0000` | fijo |
 | `SYSTEM_EMAIL` | `documentos@mg.digitalfoldr.com` | fijo |
 | `STORAGE_BACKEND` | `r2` | fijo |
@@ -180,7 +180,7 @@ que haga POST al webhook **con la nueva URL pública de Render**:
 
 Cuando deployes el frontend, ponle `NEXT_PUBLIC_API_URL=https://<tu-servicio>.onrender.com/api`
 y agrega su dominio a `CORS_ORIGINS` del backend (puedes poner varios separados por coma,
-p. ej. `https://miapp.vercel.app,http://localhost:3000`). Guardar dispara un redeploy.
+p. ej. `https://miapp.pages.dev,http://localhost:3000`). Guardar dispara un redeploy.
 
 ---
 

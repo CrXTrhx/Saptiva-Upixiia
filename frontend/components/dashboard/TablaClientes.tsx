@@ -7,8 +7,7 @@ import type { ClienteResumen } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
 import { usePaginacionRender } from "@/lib/usePaginacionRender";
 import { VerMasBtn } from "@/components/ui/VerMasBtn";
-
-const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+import { EASE_OUT, DUR } from "@/lib/motion";
 
 const AVATAR_TONES: { bg: string; text: string }[] = [
   { bg: "#ECF0E8", text: "#536648" },
@@ -75,14 +74,14 @@ function SkeletonRows() {
       {Array.from({ length: 5 }).map((_, i) => (
         <div
           key={i}
-          className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-4 last:border-b-0 animate-pulse"
+          className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-4 last:border-b-0"
         >
-          <div className="h-9 w-9 rounded-full bg-[var(--color-border)]" />
+          <div className="skeleton h-9 w-9 rounded-full" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 w-40 rounded bg-[var(--color-border)]" />
-            <div className="h-3 w-56 rounded bg-[var(--color-border)]" />
+            <div className="skeleton h-4 w-40" />
+            <div className="skeleton h-3 w-56" />
           </div>
-          <div className="hidden sm:block h-6 w-48 rounded-full bg-[var(--color-border)]" />
+          <div className="skeleton hidden sm:block h-6 w-48 rounded-full" />
         </div>
       ))}
     </>
@@ -200,7 +199,7 @@ export function TablaClientes({
               key={cliente.id}
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: reduceMotion ? 0 : 0.15, ease: EASE_OUT }}
+              transition={{ duration: reduceMotion ? 0 : DUR.micro, ease: EASE_OUT }}
             >
               <ClienteRow cliente={cliente} onSelect={onSelectCliente} />
             </motion.div>

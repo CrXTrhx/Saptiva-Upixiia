@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-label="digitalfoldr — Saptiva AML Platform">
+  <defs>
+    <!-- Fondo degradado -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1120"/>
+      <stop offset="0.55" stop-color="#0d1424"/>
+      <stop offset="1" stop-color="#111a2e"/>
+    </linearGradient>
+
+    <!-- Shimmer animado que barre el título -->
+    <linearGradient id="shimmer" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="320" y2="0">
+      <stop offset="0" stop-color="#f6a64a"/>
+      <stop offset="0.5" stop-color="#ffd9a8"/>
+      <stop offset="1" stop-color="#f6a64a"/>
+      <animate attributeName="x1" values="-320;1000" dur="4.5s" repeatCount="indefinite"/>
+      <animate attributeName="x2" values="0;1320" dur="4.5s" repeatCount="indefinite"/>
+    </linearGradient>
+
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f6a64a"/>
+      <stop offset="1" stop-color="#ffd9a8"/>
+    </linearGradient>
+
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Lienzo -->
+  <rect width="1000" height="300" rx="18" fill="url(#bg)"/>
+  <rect x="1" y="1" width="998" height="298" rx="17" fill="none" stroke="#1e2a44" stroke-width="1"/>
+
+  <!-- Puntos flotantes decorativos -->
+  <g fill="#f6a64a" opacity="0.30">
+    <circle cx="380" cy="55" r="3">
+      <animateTransform attributeName="transform" type="translate" values="0 0; 0 -10; 0 0" dur="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="900" cy="80" r="3" fill="#ffd9a8">
+      <animateTransform attributeName="transform" type="translate" values="0 0; 0 12; 0 0" dur="6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="860" cy="230" r="2.5">
+      <animateTransform attributeName="transform" type="translate" values="0 0; 0 -8; 0 0" dur="4.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="410" cy="245" r="2.5" fill="#fbbf6b">
+      <animateTransform attributeName="transform" type="translate" values="0 0; 0 9; 0 0" dur="5.5s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- ===== LOGO (carpeta + documento) con flotación suave ===== -->
+  <g transform="translate(70 60)" filter="url(#soft)">
+    <animateTransform attributeName="transform" type="translate" values="70 60; 70 50; 70 60" dur="4s" repeatCount="indefinite" additive="sum"/>
+
+    <!-- Squircle oscuro -->
+    <rect x="0" y="0" width="180" height="180" rx="42" fill="#2d2c2a"/>
+
+    <!-- Carpeta naranja (capa trasera) -->
+    <rect x="40" y="58" width="100" height="92" rx="20" fill="#f49b3f"/>
+
+    <!-- Documento blanco con esquina doblada -->
+    <path d="M68 40 h40 l24 24 v54 a10 10 0 0 1 -10 10 H68 a10 10 0 0 1 -10 -10 V50 a10 10 0 0 1 10 -10 z" fill="#ffffff"/>
+    <path d="M108 40 l24 24 h-24 z" fill="#e7c9a3"/>
+
+    <!-- Bolsillo crema (capa frontal) -->
+    <rect x="48" y="86" width="84" height="62" rx="16" fill="#fbe7cd"/>
+    <rect x="48" y="86" width="84" height="22" rx="16" fill="#ffffff" opacity="0.35"/>
+
+    <!-- Barras olivas que se dibujan -->
+    <line x1="66" y1="110" x2="116" y2="110" stroke="#61663a" stroke-width="11" stroke-linecap="round" stroke-dasharray="50" stroke-dashoffset="50">
+      <animate attributeName="stroke-dashoffset" values="50;0" dur="0.9s" begin="0.5s" fill="freeze"/>
+    </line>
+    <line x1="66" y1="130" x2="104" y2="130" stroke="#61663a" stroke-width="11" stroke-linecap="round" stroke-dasharray="38" stroke-dashoffset="38">
+      <animate attributeName="stroke-dashoffset" values="38;0" dur="0.9s" begin="0.8s" fill="freeze"/>
+    </line>
+  </g>
+
+  <!-- ===== Texto ===== -->
+  <!-- Título con shimmer + fade-in -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="1s" begin="0.2s" fill="freeze"/>
+    <text x="300" y="160" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="70" font-weight="800" letter-spacing="1" fill="url(#shimmer)">digitalfoldr</text>
+  </g>
+
+  <!-- Subrayado que se dibuja -->
+  <line x1="302" y1="182" x2="690" y2="182" stroke="url(#accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="388" stroke-dashoffset="388">
+    <animate attributeName="stroke-dashoffset" values="388;0" dur="1.4s" begin="0.8s" fill="freeze"/>
+  </line>
+
+  <!-- Subtítulo con fade-in -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="1s" begin="1.2s" fill="freeze"/>
+    <text x="304" y="222" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="500" letter-spacing="3" fill="#94a3b8">SAPTIVA AML · ONBOARDING KYC AUTOMATIZADO</text>
+  </g>
+</svg>

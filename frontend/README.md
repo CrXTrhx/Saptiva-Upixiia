@@ -100,23 +100,32 @@ frontend/
 
 ## Deploy
 
-El frontend puede deployarse en **Vercel** o **Render**.
+El frontend se deploya en **Cloudflare Pages**.
 
-**Vercel (recomendado):**
-
-```bash
-# Desde la raíz del repo en Vercel, configura:
-# Root Directory: frontend
-# Build Command: npm run build
-# Output Directory: .next
+```
+# En el dashboard de Cloudflare → Workers & Pages → Create → Pages
+# Conecta el repo de GitHub y configura:
+#   Root directory:   frontend
+#   Build command:    npm run build
+#   Framework preset: Next.js
 ```
 
-Variables de entorno en Vercel:
+Variables de entorno en Cloudflare Pages (Settings → Environment variables):
 - `NEXT_PUBLIC_API_URL=https://<tu-backend>.onrender.com/api`
 - `NEXT_PUBLIC_SYSTEM_EMAIL=documentos@mg.digitalfoldr.com`
 - `NEXT_PUBLIC_SYSTEM_WHATSAPP=+52 55 0000 0000`
 
-> Después de deployar el frontend, agrega su dominio a `CORS_ORIGINS` en el backend (ver [`../backend/DEPLOY_RENDER.md`](../backend/DEPLOY_RENDER.md)).
+> Después de deployar el frontend, agrega su dominio (`https://<proyecto>.pages.dev` o el dominio custom) a `CORS_ORIGINS` en el backend (ver [`../backend/DEPLOY_RENDER.md`](../backend/DEPLOY_RENDER.md)).
+
+---
+
+## Sistema visual y de motion
+
+Las convenciones de UI viven en [`DESIGN.md`](DESIGN.md): tokens de color/radius y
+la spec de **Motion & Microinteractions** (duraciones, easing, specs por
+componente y `prefers-reduced-motion`). Los tokens se consumen desde
+[`app/globals.css`](app/globals.css) (CSS) y [`lib/motion.ts`](lib/motion.ts)
+(framer-motion).
 
 ---
 

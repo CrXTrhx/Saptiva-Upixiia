@@ -1,6 +1,8 @@
 "use client";
 
 import { Users, ArrowDownWideNarrow } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { EASE_OUT } from "@/lib/motion";
 
 export type VistaDashboard = "cliente" | "prioridad";
 
@@ -20,6 +22,8 @@ export function VistaToggle({
   value: VistaDashboard;
   onChange: (v: VistaDashboard) => void;
 }) {
+  const reduceMotion = useReducedMotion();
+
   return (
     <div
       role="tablist"
@@ -35,14 +39,26 @@ export function VistaToggle({
             type="button"
             aria-selected={active}
             onClick={() => onChange(v)}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] ${
-              active
-                ? "bg-[var(--color-text)] text-white"
-                : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            className={`relative inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] ${
+              active ? "text-white" : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
             }`}
           >
-            <Icon size={15} aria-hidden="true" />
-            {label}
+            {/* Indicador deslizante: se anima entre tabs con layoutId. */}
+            {active && (
+              <motion.span
+                layoutId="vista-toggle-pill"
+                className="absolute inset-0 rounded-md bg-[var(--color-text)]"
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 420, damping: 34 }
+                }
+                style={{ zIndex: 0 }}
+                aria-hidden="true"
+              />
+            )}
+            <Icon size={15} aria-hidden="true" className="relative z-10" />
+            <span className="relative z-10">{label}</span>
           </button>
         );
       })}

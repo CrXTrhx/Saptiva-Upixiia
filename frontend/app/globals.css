@@ -37,6 +37,16 @@
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
+
+  /* Motion tokens — fuente de verdad. Ver frontend/DESIGN.md › Motion & Microinteractions.
+     Los mismos valores existen en lib/motion.ts para framer-motion. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);   /* entradas / reveal */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);       /* salidas */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1); /* cambios de estado */
+  --dur-micro: 150ms;    /* hover/focus/pressed, color, micro */
+  --dur-hover: 180ms;    /* elevaciones, surface */
+  --dur-entrance: 320ms; /* aparición de contenido */
+  --dur-overlay: 220ms;  /* modals / overlays */
 }
 
 @theme inline {
@@ -62,9 +72,39 @@ body {
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+/* Barrido para skeletons/loaders */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* Utilidades de motion conectadas a los tokens. Usar en lugar de valores sueltos. */
+.animate-rise { animation: scaleIn var(--dur-entrance) var(--ease-out) both; }
+.animate-fade { animation: fadeIn var(--dur-micro) var(--ease-out) both; }
+
+/* Placeholder de carga con shimmer. Reemplaza al patrón bg + animate-pulse. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-border-inner) 25%,
+    var(--color-border) 37%,
+    var(--color-border-inner) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* Accesibilidad: respeta prefers-reduced-motion de forma global.
+   Cubre toda animación/transición CSS (incluidas las nuevas). Los componentes
+   con framer-motion además usan useReducedMotion (ver lib/motion.ts). */
 @media (prefers-reduced-motion: reduce) {
-  .animate-\[fadeIn_150ms_ease-out\],
-  .animate-\[scaleIn_200ms_cubic-bezier\(0\.16\,1\,0\.3\,1\)\] {
-    animation: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
