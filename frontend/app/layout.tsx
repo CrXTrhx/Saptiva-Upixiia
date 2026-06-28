@@ -14,10 +14,6 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-<<<<<<< Updated upstream
-  title: "DigitalFoldr — Gestión de Expedientes",
-  description: "Sistema de gestión de expedientes DigitalFoldr",
-=======
   title: "DigitalFoldr - Gestion de Expedientes",
   description: "Sistema de gestion documental DigitalFoldr",
   icons: {
@@ -28,7 +24,6 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/digitalfoldr-apple-icon.png", sizes: "180x180", type: "image/png" }],
   },
->>>>>>> Stashed changes
 };
 
 export default function RootLayout({
