@@ -1251,8 +1251,6 @@ function DetalleContent() {
               )}
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
-              <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
               <ReenviarInstruccionesMenu
                 expediente={exp}
