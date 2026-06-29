@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.codes import Channel
 from app.core.deps import get_current_user, get_db
 from app.core.errors import ValidationError
-from app.models import AppUser, CaseFile
+from app.models import AppUser
 from app.modules.documentos import notificaciones, service
 from app.modules.documentos.schemas import RechazarRequest
 from app.modules.expedientes import serializers
@@ -67,16 +67,10 @@ def validar(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.validar_documento(db, doc, user)
-    # Avisar al cliente por correo en segundo plano (no bloquea la respuesta del boton).
-    case = db.get(CaseFile, doc.case_file_id)
+    # Agenda el correo resumen (digest) en segundo plano. Se agrupan las validaciones/
+    # rechazos de la misma rafaga en un solo correo para no hacer spam al cliente.
     background_tasks.add_task(
-        notificaciones.notificar_validacion,
-        case.id,
-        case.client_email,
-        case.code,
-        doc.declared_type_code or doc.detected_type_code,
-        actor=user.email,
-        actor_user_id=user.id,
+        notificaciones.programar_digest, doc.case_file_id, user.email, user.id
     )
     return serializers.serialize_documento(db, doc)
 
@@ -91,18 +85,10 @@ def rechazar(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.rechazar_documento(db, doc, body.categoria, body.texto, user)
-    # Avisar al cliente por correo en segundo plano (no bloquea la respuesta del boton).
-    case = db.get(CaseFile, doc.case_file_id)
+    # Agenda el correo resumen (digest) en segundo plano. Se agrupan las validaciones/
+    # rechazos de la misma rafaga en un solo correo para no hacer spam al cliente.
     background_tasks.add_task(
-        notificaciones.notificar_rechazo,
-        case.id,
-        case.client_email,
-        case.code,
-        doc.declared_type_code or doc.detected_type_code,
-        body.categoria,
-        body.texto,
-        actor=user.email,
-        actor_user_id=user.id,
+        notificaciones.programar_digest, doc.case_file_id, user.email, user.id
     )
     return serializers.serialize_documento(db, doc)
 

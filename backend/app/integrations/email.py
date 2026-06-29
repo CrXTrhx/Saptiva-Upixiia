@@ -72,8 +72,11 @@ def download_attachment(url: str) -> bytes | None:
         return None
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
-    """Envia un correo de texto plano via Mailgun. Devuelve True si se envio.
+def send_email(to: str, subject: str, body: str, html: str | None = None) -> bool:
+    """Envia un correo via Mailgun. Devuelve True si se envio.
+
+    `body` es siempre la version en texto plano (fallback). Si se pasa `html`, se
+    envia ademas la version HTML y el cliente de correo muestra la que prefiera.
 
     Sin credenciales configuradas cae a un stub (imprime) para dev/tests. Nunca
     lanza excepcion: si el envio falla, lo registra y devuelve False para no
@@ -84,11 +87,14 @@ def send_email(to: str, subject: str, body: str) -> bool:
         return False
     url = f"{settings.mailgun_base_url.rstrip('/')}/v3/{settings.mailgun_domain}/messages"
     sender = settings.mail_from or f"noreply@{settings.mailgun_domain}"
+    data = {"from": sender, "to": to, "subject": subject, "text": body}
+    if html:
+        data["html"] = html
     try:
         resp = httpx.post(
             url,
             auth=("api", settings.mailgun_api_key),
-            data={"from": sender, "to": to, "subject": subject, "text": body},
+            data=data,
             timeout=15.0,
         )
         resp.raise_for_status()

@@ -97,9 +97,8 @@ class EventType:
     DOCUMENT_REPLACED = "DOCUMENT_REPLACED"
     REMINDER_SENT = "REMINDER_SENT"
     INSTRUCTIONS_RESENT = "INSTRUCTIONS_RESENT"
-    # Correo enviado al cliente al validar / rechazar uno de sus documentos
-    CLIENT_NOTIFIED_VALIDATED = "CLIENT_NOTIFIED_VALIDATED"
-    CLIENT_NOTIFIED_REJECTED = "CLIENT_NOTIFIED_REJECTED"
+    # Correo resumen (digest) enviado al cliente tras una rafaga de validaciones/rechazos
+    CLIENT_NOTIFIED_DIGEST = "CLIENT_NOTIFIED_DIGEST"
     NOTE_ADDED = "NOTE_ADDED"
     CASE_COMPLETED = "CASE_COMPLETED"
     CASE_CANCELLED = "CASE_CANCELLED"
@@ -134,8 +133,7 @@ EVENT_TONE = {
     EventType.DOCUMENT_REPLACED: "neutral",
     EventType.REMINDER_SENT: "neutral",
     EventType.INSTRUCTIONS_RESENT: "neutral",
-    EventType.CLIENT_NOTIFIED_VALIDATED: "ok",
-    EventType.CLIENT_NOTIFIED_REJECTED: "warn",
+    EventType.CLIENT_NOTIFIED_DIGEST: "ok",
     EventType.NOTE_ADDED: "neutral",
     EventType.CASE_COMPLETED: "ok",
     EventType.CASE_CANCELLED: "warn",
