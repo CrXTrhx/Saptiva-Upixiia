@@ -338,6 +338,7 @@ BEGIN
         v_op := CASE NEW.operation_type_code
                     WHEN 'ARMORING'     THEN 'BLN'
                     WHEN 'VEHICLE_SALE' THEN 'VNT'
+                    WHEN 'MIXED'        THEN 'MIX'
                     ELSE 'GEN'
                 END;
         INSERT INTO case_code_sequence(year, op_code, last_number)
@@ -358,6 +359,23 @@ END;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER tg_case_set_code BEFORE INSERT ON case_file
     FOR EACH ROW EXECUTE FUNCTION fn_case_set_code();
+
+-- 5b. OPERACIONES DE LA VENTA (una venta puede tener varias: 2 autos, 1 auto + 1
+--     blindaje, etc.). Se capturan UNA POR UNA (3 blindajes = 3 filas), cada una con
+--     su propio monto, ya que pueden tener precios distintos.
+--     case_file.operation_type_code es el RESUMEN (tipo unico o 'MIXED'); aqui vive el
+--     detalle por linea. estimated_amount del case = SUMA de amount de sus operaciones.
+CREATE TABLE case_operation (
+    id                  uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
+    case_file_id        uuid          NOT NULL REFERENCES case_file(id),
+    operation_type_code varchar(40)   NOT NULL REFERENCES cat_operation_type(code),
+    amount              numeric(14,2) NOT NULL CHECK (amount >= 0),
+    sort_order          smallint      NOT NULL DEFAULT 0,
+    active_flag         smallint      NOT NULL DEFAULT 1 CHECK (active_flag IN (0,1)),
+    created_at          timestamptz   NOT NULL DEFAULT now(),
+    updated_at          timestamptz   NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_caseop_case ON case_operation (case_file_id);
 
 -- =============================================================================
 -- 6. DOCUMENTO (recibido y asociado a un expediente)
@@ -588,7 +606,10 @@ INSERT INTO cat_user_role(code, label_es, description, sort_order) VALUES
 -- Umbrales LFPIORPI 2026 (UMA $117.31)
 INSERT INTO cat_operation_type(code, label_es, lfpiorpi_fraction, identification_threshold, sat_report_threshold, cash_limit_threshold, sort_order) VALUES
     ('ARMORING',     'Blindaje de vehiculo', 'IX',   282717.10, 564847.65, 376565.10, 1),
-    ('VEHICLE_SALE', 'Venta de vehiculo',    'VIII', 376565.10, 753130.20, 376565.10, 2);
+    ('VEHICLE_SALE', 'Venta de vehiculo',    'VIII', 376565.10, 753130.20, 376565.10, 2),
+    -- 'MIXED' = venta con tipos mezclados (codigo MIX). Umbrales = el minimo entre
+    -- los tipos reales, para errar siempre hacia exigir identificacion.
+    ('MIXED',        'Mixto',                NULL,   282717.10, 564847.65, 376565.10, 3);
 
 INSERT INTO cat_case_status(code, label_es, sort_order, is_open, is_terminal) VALUES
     ('CAPTURING',          'En captura',        1, 1, 0),
@@ -683,11 +704,14 @@ INSERT INTO cat_llm_question_type(code, label_es) VALUES
     ('SAT_REPORT',   'Hay que avisar al SAT?'),
     ('CASH_PAYMENT', 'Se puede pagar en efectivo?');
 
--- Plantilla de checklist: persona fisica residente, ambos tipos de operacion
+-- Plantilla de checklist: persona fisica residente, tipos reales de operacion.
+-- 'MIXED' no lleva plantilla propia: el servicio materializa el checklist como la
+-- union de las plantillas de los tipos reales de la venta.
 INSERT INTO cat_checklist_template(operation_type_code, document_type_code, sort_order)
 SELECT ot.code, dt.code, dt.sort_order
 FROM cat_operation_type ot
 CROSS JOIN cat_document_type dt
-WHERE dt.is_checklist_item = 1;
+WHERE dt.is_checklist_item = 1
+  AND ot.code <> 'MIXED';
 
 COMMIT;

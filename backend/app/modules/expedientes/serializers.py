@@ -16,6 +16,7 @@ from app.models import (
     CaseChecklistItem,
     CaseEvent,
     CaseFile,
+    CaseOperation,
     Document,
     InternalNote,
     NextStep,
@@ -57,6 +58,23 @@ def documentos_faltantes(db: Session, case_id) -> list[str]:
     return [i.document_type_code for i in items if i.status_code in _MISSING_CHECKLIST]
 
 
+def _op_dict(op: CaseOperation) -> dict:
+    return {
+        "tipo": op.operation_type_code,
+        "monto": float(op.amount),
+    }
+
+
+def operaciones_de(db: Session, case_id) -> list[dict]:
+    """[{tipo, monto}] de un expediente, ordenadas por sort_order."""
+    ops = db.execute(
+        select(CaseOperation)
+        .where(CaseOperation.case_file_id == case_id, CaseOperation.active_flag == 1)
+        .order_by(CaseOperation.sort_order, CaseOperation.created_at)
+    ).scalars()
+    return [_op_dict(o) for o in ops]
+
+
 def _build_expediente_dict(
     case: CaseFile,
     *,
@@ -64,6 +82,7 @@ def _build_expediente_dict(
     capturista: str,
     faltantes: list[str],
     ultima,
+    operaciones: list[dict],
 ) -> dict:
     """Arma el dict de un expediente (item de lista). Funcion PURA (sin BD): la
     usan tanto serialize_expediente (single) como serialize_expedientes_bulk para
@@ -79,6 +98,7 @@ def _build_expediente_dict(
         "estado": case.status_code,
         "montoEstimado": float(case.estimated_amount),
         "tipoOperacion": case.operation_type_code,
+        "operaciones": operaciones,
         "nextStepPrioritario": next_prio,
         "capturista": capturista,
         "documentosFaltantes": faltantes,
@@ -94,6 +114,7 @@ def serialize_expediente(db: Session, case: CaseFile) -> dict:
         capturista=_capturista_nombre(db, case),
         faltantes=documentos_faltantes(db, case.id),
         ultima=_ultima_actividad(db, case),
+        operaciones=operaciones_de(db, case.id),
     )
 
 
@@ -115,6 +136,21 @@ def ultima_actividad_map(db: Session, case_ids: list) -> dict:
 def ultima_actividad_de(case: CaseFile, ultima_map: dict):
     """Mismo fallback que _ultima_actividad pero usando el mapa batch."""
     return ultima_map.get(case.id) or case.updated_at or case.created_at
+
+
+def operaciones_map(db: Session, case_ids: list) -> dict:
+    """{case_id: [{tipo, monto}]} (1 query, sin N+1), ordenadas por sort_order."""
+    if not case_ids:
+        return {}
+    ops = db.execute(
+        select(CaseOperation)
+        .where(CaseOperation.case_file_id.in_(case_ids), CaseOperation.active_flag == 1)
+        .order_by(CaseOperation.sort_order, CaseOperation.created_at)
+    ).scalars()
+    out: dict = {}
+    for o in ops:
+        out.setdefault(o.case_file_id, []).append(_op_dict(o))
+    return out
 
 
 def documentos_faltantes_map(db: Session, case_ids: list) -> dict:
@@ -185,6 +221,7 @@ def serialize_expedientes_bulk(db: Session, cases: list[CaseFile]) -> list[dict]
     falt_map = documentos_faltantes_map(db, case_ids)
     prio_map = _next_prio_map(db, case_ids)
     ult_map = ultima_actividad_map(db, case_ids)
+    ops_map = operaciones_map(db, case_ids)
 
     result = []
     for c in cases:
@@ -199,6 +236,7 @@ def serialize_expedientes_bulk(db: Session, cases: list[CaseFile]) -> list[dict]
                 capturista=capturista,
                 faltantes=falt_map.get(c.id, []),
                 ultima=ultima_actividad_de(c, ult_map),
+                operaciones=ops_map.get(c.id, []),
             )
         )
     return result

@@ -45,7 +45,7 @@ from app.models import (
 from app.modules.eventos import registrar_evento
 from app.modules.expedientes import next_steps as ns
 from app.modules.expedientes import service as exp_service
-from app.modules.expedientes.schemas import CreateExpedienteRequest
+from app.modules.expedientes.schemas import CreateExpedienteRequest, OperacionItem
 from app.modules.expedientes.state_machine import transition
 from app.modules.llm import service as llm_service
 
@@ -235,8 +235,7 @@ def _new_case(db, user, cli, monto, tipo) -> CaseFile:
         cliente_telefono=cli["telefono"],
         cliente_correo=cli["correo"],
         cliente_rfc=cli["rfc"],
-        monto_estimado=monto,
-        tipo_operacion=tipo,
+        operaciones=[OperacionItem(tipo=tipo, monto=monto)],
     )
     case = exp_service.create_expediente(db, req, user)
     case.client_curp = cli["curp"]

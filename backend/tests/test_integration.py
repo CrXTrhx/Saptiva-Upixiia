@@ -44,7 +44,7 @@ def _crear(
         "clienteNombre": nombre, "clienteTelefono": "5550000000",
         "clienteCorreo": f"{uuid.uuid4().hex[:8]}@test.com",
         "clienteRfc": cliente_rfc,
-        "montoEstimado": monto, "tipoOperacion": tipo,
+        "operaciones": [{"tipo": tipo, "monto": monto}],
     })
     assert r.status_code == 201, r.text
     return r.json()
@@ -105,12 +105,46 @@ def test_crear_y_estado_inicial(client, auth):
     exp = _crear(client, auth)
     assert exp["estado"] == "CAPTURING"
     assert exp["codigo"].startswith("EXP-")
+    # Una venta de un tipo expone una sola operacion.
+    assert len(exp["operaciones"]) == 1
+    assert exp["operaciones"][0]["tipo"] == "ARMORING"
+
+
+def test_crear_un_tipo_conserva_prefijo(client, auth):
+    exp = _crear(client, auth, tipo="vehicle_sale", monto=500000)
+    assert exp["tipoOperacion"] == "VEHICLE_SALE"
+    assert "-VNT" in exp["codigo"]
+
+
+def test_crear_mixto_genera_codigo_mix(client, auth):
+    rfc = f"TEST900101{uuid.uuid4().hex[:3].upper()}"
+    r = client.post("/api/expedientes", headers=auth, json={
+        "clienteNombre": "Cliente Mixto", "clienteTelefono": "5550000000",
+        "clienteCorreo": f"{uuid.uuid4().hex[:8]}@test.com",
+        "clienteRfc": rfc,
+        "operaciones": [
+            {"tipo": "vehicle_sale", "monto": 300000},
+            {"tipo": "blindaje", "monto": 150000},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    exp = r.json()
+    assert exp["tipoOperacion"] == "MIXED"
+    assert "-MIX" in exp["codigo"]
+    assert exp["montoEstimado"] == 450000  # suma de las lineas
+    assert len(exp["operaciones"]) == 2
+
+    det = client.get(f"/api/expedientes/{exp['id']}/detalle", headers=auth).json()
+    # El checklist son los 4 documentos de identidad (no se duplica al combinar tipos).
+    assert len(det["checklist"]) == 4
+    assert len(det["expediente"]["operaciones"]) == 2
 
 
 def test_editar_expediente(client, auth):
     exp = _crear(client, auth, nombre="Antes Edicion")
     r = client.patch(f"/api/expedientes/{exp['id']}", headers=auth, json={
-        "clienteNombre": "Despues Edicion", "montoEstimado": 999999,
+        "clienteNombre": "Despues Edicion",
+        "operaciones": [{"tipo": "blindaje", "monto": 999999}],
     })
     assert r.status_code == 200, r.text
     assert r.json()["clienteNombre"] == "Despues Edicion"

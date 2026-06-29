@@ -63,8 +63,8 @@ def main() -> int:
     # --- PRUEBA 2: Crear venta (Flujo A) + instrucciones ---
     r = c.post("/expedientes", json={
         "clienteNombre": "Prueba Automatizada", "clienteTelefono": "5551234567",
-        "clienteCorreo": "prueba.auto@correo.com", "montoEstimado": 700000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "prueba.auto@correo.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 700000}],
     })
     e1 = r.json() if r.status_code == 201 else {}
     e1_id, e1_code = e1.get("id"), e1.get("codigo")
@@ -111,7 +111,8 @@ def main() -> int:
     # --- PRUEBA 6: Recepcion por WhatsApp (con y sin codigo) ---
     e2 = c.post("/expedientes", json={
         "clienteNombre": "Cliente WhatsApp", "clienteTelefono": "5559990000",
-        "clienteCorreo": "wa@correo.com", "montoEstimado": 300000, "tipoOperacion": "blindaje",
+        "clienteCorreo": "wa@correo.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 300000}],
     }).json()
     asignado = c.post("/webhooks/whatsapp", json={
         "sender": "+525551112233", "text": f"Hola les mando mi INE {e2['codigo']}",
@@ -131,7 +132,8 @@ def main() -> int:
     lista_h = c.get("/huerfanos")
     e3 = c.post("/expedientes", json={
         "clienteNombre": "Destino Huerfano", "clienteTelefono": "5557778888",
-        "clienteCorreo": "dest@correo.com", "montoEstimado": 200000, "tipoOperacion": "blindaje",
+        "clienteCorreo": "dest@correo.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 200000}],
     }).json()
     asig = None
     if lista_h.status_code == 200 and lista_h.json():

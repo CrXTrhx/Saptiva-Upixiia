@@ -6,7 +6,7 @@ import html as html_lib
 import uuid
 from urllib.parse import quote
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.codes import (
@@ -25,6 +25,7 @@ from app.models import (
     CaseChecklistItem,
     CaseEvent,
     CaseFile,
+    CaseOperation,
     CatChecklistTemplate,
     Document,
     InternalNote,
@@ -61,6 +62,28 @@ def get_case_or_404(db: Session, case_id: str) -> CaseFile:
     return case
 
 
+def _materializar_checklist(db: Session, case_id, tipos: set[str]) -> None:
+    """Crea los items de checklist (PENDING) como union de las plantillas de los
+    tipos dados, deduplicando por document_type_code y respetando su sort_order."""
+    rows = db.execute(
+        select(CatChecklistTemplate.document_type_code)
+        .where(
+            CatChecklistTemplate.operation_type_code.in_(tipos),
+            CatChecklistTemplate.active_flag == 1,
+        )
+        .group_by(CatChecklistTemplate.document_type_code)
+        .order_by(func.min(CatChecklistTemplate.sort_order))
+    ).all()
+    for (doc_type,) in rows:
+        db.add(
+            CaseChecklistItem(
+                case_file_id=case_id,
+                document_type_code=doc_type,
+                status_code=ChecklistStatus.PENDING,
+            )
+        )
+
+
 def create_expediente(
     db: Session, req: CreateExpedienteRequest, user: AppUser
 ) -> CaseFile:
@@ -88,7 +111,7 @@ def create_expediente(
         client_rfc=rfc,
         client_curp=prev_curp,
         client_postal_code=prev_cp,
-        estimated_amount=req.monto_estimado,
+        estimated_amount=req.total(),
         operation_type_code=req.operation_type_code(),
         assigned_user_id=user.id,
         created_by=user.id,
@@ -98,21 +121,22 @@ def create_expediente(
     db.flush()  # genera id + code (trigger)
     db.refresh(case, ["code", "status_code"])
 
-    # Materializa el checklist desde la plantilla del tipo de operacion
-    tmpl = db.execute(
-        select(CatChecklistTemplate).where(
-            CatChecklistTemplate.operation_type_code == case.operation_type_code,
-            CatChecklistTemplate.active_flag == 1,
-        )
-    ).scalars()
-    for row in tmpl:
+    # Operaciones de la venta (una fila por operacion).
+    for orden, op in enumerate(req.operaciones):
         db.add(
-            CaseChecklistItem(
+            CaseOperation(
                 case_file_id=case.id,
-                document_type_code=row.document_type_code,
-                status_code=ChecklistStatus.PENDING,
+                operation_type_code=op.tipo,
+                amount=op.monto,
+                sort_order=orden,
             )
         )
+
+    # Materializa el checklist como la UNION de las plantillas de los tipos reales de
+    # la venta (dedupe por document_type_code). Para una venta mezclada (auto+blindaje)
+    # la union son los mismos 4 docs de identidad; el resumen 'MIXED' no tiene plantilla.
+    tipos = {op.tipo for op in req.operaciones}
+    _materializar_checklist(db, case.id, tipos)
     db.flush()
 
     registrar_evento(
@@ -142,13 +166,30 @@ def editar_expediente(db: Session, case: CaseFile, body, user: AppUser) -> CaseF
     if body.cliente_rfc is not None:
         case.client_rfc = body.cliente_rfc or None
         cambios.append("rfc")
-    if body.monto_estimado is not None:
-        case.estimated_amount = body.monto_estimado
-        cambios.append("monto")
-    op_code = body.operation_type_code()
-    if op_code is not None:
-        case.operation_type_code = op_code
-        cambios.append("tipo de operacion")
+    if body.operaciones is not None:
+        # Reemplaza la lista completa: desactiva las anteriores e inserta las nuevas,
+        # luego recomputa el resumen (tipo unico o MIXED) y el total. El codigo del
+        # expediente NO se regenera (es identificador estable compartido con el cliente).
+        db.execute(
+            update(CaseOperation)
+            .where(
+                CaseOperation.case_file_id == case.id,
+                CaseOperation.active_flag == 1,
+            )
+            .values(active_flag=0)
+        )
+        for orden, op in enumerate(body.operaciones):
+            db.add(
+                CaseOperation(
+                    case_file_id=case.id,
+                    operation_type_code=op.tipo,
+                    amount=op.monto,
+                    sort_order=orden,
+                )
+            )
+        case.estimated_amount = body.total()
+        case.operation_type_code = body.operation_type_code()
+        cambios.append("operaciones")
     case.updated_by = user.id
     db.flush()
     registrar_evento(
