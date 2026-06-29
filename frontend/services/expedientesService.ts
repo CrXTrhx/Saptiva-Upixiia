@@ -292,10 +292,13 @@ export const expedientesService = {
     });
   },
 
-  async reenviarInstrucciones(id: string): Promise<void> {
-    await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
-      method: "POST",
-    });
+  async reenviarInstrucciones(
+    id: string,
+  ): Promise<{ enviado: boolean; correo: string }> {
+    return apiClient<{ enviado: boolean; correo: string }>(
+      `/expedientes/${id}/reenviar-instrucciones`,
+      { method: "POST" },
+    );
   },
 
   async restaurarExpediente(id: string): Promise<Expediente> {
