@@ -327,14 +327,6 @@ export const expedientesService = {
     }>(`/expedientes/${id}/instrucciones`);
   },
 
-  async reenviarInstrucciones(id: string): Promise<{ enviado: boolean; correo: string }> {
-    return apiClient<{ enviado: boolean; correo: string }>(
-      `/expedientes/${id}/reenviar-instrucciones`,
-      { method: "POST" },
-    );
-
-  },
-
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {
     return apiClient<Nota>(`/expedientes/${expedienteId}/notas`, {
       method: "POST",
