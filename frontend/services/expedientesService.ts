@@ -296,6 +296,8 @@ export const expedientesService = {
     await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
       method: "POST",
     });
+  },
+
   async restaurarExpediente(id: string): Promise<Expediente> {
     return apiClient<Expediente>(`/expedientes/${id}/restaurar`, {
       method: "PATCH",
