@@ -36,8 +36,8 @@ def main() -> int:
     # 2. Crear venta: Juan Perez, 700000, blindaje
     r = c.post("/expedientes", json={
         "clienteNombre": "Juan Perez", "clienteTelefono": "5550001111",
-        "clienteCorreo": "juan@example.com", "montoEstimado": 700000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "juan@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 700000}],
     })
     check("2. crear expediente", r.status_code == 201, r.text)
     exp = r.json()
@@ -74,6 +74,27 @@ def main() -> int:
     r = c.post(f"/documentos/{bad_doc_id}/reemplazar", files=files)
     check("7. reemplazo comprobante", r.status_code == 201 and r.json().get("estado") == "RECEIVED", r.text)
     check("7b. version anterior enlazada", r.json().get("versionAnterior") is not None, r.text)
+    new_doc_id = r.json()["id"]
+
+    # 7c. Restaurar la version anterior: el doc viejo vuelve a estar vigente.
+    r = c.post(f"/documentos/{new_doc_id}/restaurar-version")
+    restored = r.json()
+    check(
+        "7c. restaurar version anterior",
+        r.status_code == 200
+        and restored.get("id") == bad_doc_id
+        and restored.get("estado") == "RECEIVED"
+        and (restored.get("versionAnterior") or {}).get("id") == new_doc_id,
+        r.text,
+    )
+
+    # 7d. Restaurar de nuevo (toggle): vuelve a quedar vigente el comprobante bueno.
+    r = c.post(f"/documentos/{bad_doc_id}/restaurar-version")
+    check(
+        "7d. toggle de vuelta a la version nueva",
+        r.status_code == 200 and r.json().get("id") == new_doc_id and r.json().get("estado") == "RECEIVED",
+        r.text,
+    )
 
     # 8. CSF desde el portal
     files = {"file": ("constancia_fiscal.pdf", b"%PDF csf", "application/pdf")}
@@ -129,8 +150,8 @@ def main() -> int:
     # crear un segundo expediente para asignarle el huerfano
     r2 = c.post("/expedientes", json={
         "clienteNombre": "Maria Lopez", "clienteTelefono": "5552223333",
-        "clienteCorreo": "maria@example.com", "montoEstimado": 300000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "maria@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 300000}],
     })
     exp2_id = r2.json()["id"]
     r = c.post(f"/huerfanos/{orphan_id}/asignar", json={"expedienteId": exp2_id, "tipo": "OFFICIAL_ID"})
@@ -139,8 +160,8 @@ def main() -> int:
     # 16. Cancelar un expediente con motivo
     r3 = c.post("/expedientes", json={
         "clienteNombre": "Pedro Ruiz", "clienteTelefono": "5554445555",
-        "clienteCorreo": "pedro@example.com", "montoEstimado": 400000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "pedro@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 400000}],
     })
     exp3_id = r3.json()["id"]
     r = c.patch(f"/expedientes/{exp3_id}/cancelar", json={"motivo": "cliente desistio de la compra"})

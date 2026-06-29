@@ -14,8 +14,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Centur — Gestión de Expedientes",
-  description: "Sistema de gestión de expedientes Centur Blindajes",
+  title: "DigitalFoldr - Gestion de Expedientes",
+  description: "Sistema de gestion documental DigitalFoldr",
+  icons: {
+    icon: [
+      { url: "/digitalfoldr-icon.svg", type: "image/svg+xml" },
+      { url: "/digitalfoldr-icon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/digitalfoldr-icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/digitalfoldr-apple-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({

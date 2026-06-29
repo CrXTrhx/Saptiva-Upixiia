@@ -44,7 +44,17 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+    <form
+      onSubmit={handleSubmit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !submitting) {
+          e.preventDefault();
+          handleSubmit(e as unknown as FormEvent);
+        }
+      }}
+      noValidate
+      className="flex flex-col gap-5"
+    >
   
       <Input
         label="Correo electrónico"

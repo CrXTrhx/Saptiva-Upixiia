@@ -18,6 +18,7 @@ class PipelineContext:
     declared_type: str | None
     file_name: str
     mime_type: str | None
+    content: bytes | None = None
     actor: str = "system"
     actor_user_id: uuid.UUID | None = None
 

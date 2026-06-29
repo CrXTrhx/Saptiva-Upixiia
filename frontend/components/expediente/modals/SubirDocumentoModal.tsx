@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Trash2,
+  Lock,
 } from "lucide-react";
 import type { Documento, DocumentoRequerido } from "@/lib/types";
 import { DOCUMENTOS_REQUERIDOS, DOCUMENTO_REQUERIDO_LABELS } from "@/lib/types";
@@ -47,6 +48,7 @@ type SubirDocumentoModalProps = {
   onConfirm: (tipo: DocumentoRequerido, archivo: File) => void;
   onClose: () => void;
   loading?: boolean;
+  tiposDisponibles?: DocumentoRequerido[];
 };
 
 function getExt(name = "") {
@@ -81,9 +83,14 @@ export default function SubirDocumentoModal({
   onConfirm,
   onClose,
   loading = false,
+  tiposDisponibles,
 }: SubirDocumentoModalProps) {
+  const availableTipos =
+    modo === "reemplazo" || tiposDisponibles === undefined
+      ? DOCUMENTOS_REQUERIDOS
+      : tiposDisponibles;
   const [tipo, setTipo] = useState<DocumentoRequerido>(
-    documentoActual?.tipo ?? "OFFICIAL_ID",
+    documentoActual?.tipo ?? availableTipos[0] ?? "OFFICIAL_ID",
   );
   const [archivo, setArchivo] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -242,15 +249,24 @@ export default function SubirDocumentoModal({
             <select
               value={tipo}
               onChange={(e) => setTipo(e.target.value as DocumentoRequerido)}
-              className="mb-4 w-full cursor-pointer rounded-lg px-3 py-2.5 text-[13px] transition-colors"
-              style={{ border: "1px solid #E5DED6", color: "#302F2D", backgroundColor: "#FFFFFF", outline: "none" }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "#F19B42")}
+              className={`${esReemplazo ? "mb-1.5 cursor-not-allowed" : "mb-4 cursor-pointer"} w-full rounded-lg px-3 py-2.5 text-[13px] transition-colors`}
+              style={{ border: "1px solid #E5DED6", color: esReemplazo ? "#5C5957" : "#302F2D", backgroundColor: esReemplazo ? "#F4F0EB" : "#FFFFFF", outline: "none" }}
+              onFocus={(e) => { if (!esReemplazo) e.currentTarget.style.borderColor = "#F19B42"; }}
               onBlur={(e) => (e.currentTarget.style.borderColor = "#E5DED6")}
+              disabled={esReemplazo || availableTipos.length === 0}
             >
-              {DOCUMENTOS_REQUERIDOS.map((dr) => (
+              {availableTipos.map((dr) => (
                 <option key={dr} value={dr}>{DOCUMENTO_REQUERIDO_LABELS[dr]}</option>
               ))}
             </select>
+            {esReemplazo && (
+              <p className="mb-4 flex items-center gap-1 text-[11px]" style={{ color: "#989396" }}>
+                <Lock size={11} strokeWidth={2} /> El tipo no se puede cambiar al reemplazar un documento.
+              </p>
+            )}
+            {availableTipos.length === 0 && (
+              <p className="mb-3 text-[12px] text-[#9C4B2E]">Ya no quedan tipos de documento disponibles para subir.</p>
+            )}
 
             {/* Dropzone / preview */}
             <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider" style={{ color: "#5C5957" }}>

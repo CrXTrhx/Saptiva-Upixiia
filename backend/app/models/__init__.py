@@ -54,8 +54,9 @@ class CaseFile(Base):
     __tablename__ = "case_file"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    # code lo genera el trigger tg_case_set_code; FetchedValue para recuperarlo via RETURNING
-    code: Mapped[str] = mapped_column(String(20), server_default=FetchedValue())
+    # code lo genera el trigger tg_case_set_code; FetchedValue para recuperarlo via RETURNING.
+    # Formato EXP-AAAA-####{BLN|VNT}##### (21 chars); 30 deja holgura.
+    code: Mapped[str] = mapped_column(String(30), server_default=FetchedValue())
     client_name: Mapped[str] = mapped_column(String(255))
     client_phone: Mapped[str | None] = mapped_column(String(30))
     client_email: Mapped[str | None] = mapped_column(String(255))
@@ -72,6 +73,25 @@ class CaseFile(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+
+
+class CaseOperation(Base):
+    """Una operacion de la venta (un auto, un blindaje, etc.). Una venta tiene 1+N.
+
+    Las operaciones se capturan una por una (3 blindajes = 3 filas), cada una con su
+    propio monto. case_file.operation_type_code es el RESUMEN (tipo unico o 'MIXED');
+    el detalle por linea vive aqui. case_file.estimated_amount = suma de amount.
+    """
+    __tablename__ = "case_operation"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    case_file_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_file.id"))
+    operation_type_code: Mapped[str] = mapped_column(String(40))
+    amount: Mapped[float] = mapped_column(Numeric(14, 2))
+    sort_order: Mapped[int] = mapped_column(SmallInteger, default=0)
+    active_flag: Mapped[int] = mapped_column(SmallInteger, default=1)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
 
 
 class Document(Base):
@@ -95,6 +115,9 @@ class Document(Base):
     rejection_note: Mapped[str | None] = mapped_column(Text)
     is_auto_rejected: Mapped[int] = mapped_column(SmallInteger, default=0)
     replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document.id"))
+    # Momento en que el cron borro el archivo de R2 (versiones reemplazadas viejas).
+    # La fila se conserva como auditoria; si no es None, file_url ya no existe en R2.
+    file_purged_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     reception_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
     validated_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     validated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))

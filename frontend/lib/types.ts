@@ -50,15 +50,27 @@ export type DocumentoRequerido = (typeof DOCUMENTOS_REQUERIDOS)[number];
 export const DOCUMENTO_REQUERIDO_LABELS: Record<DocumentoRequerido, string> = {
   OFFICIAL_ID: "INE",
   CURP: "CURP",
-  TAX_STATUS_CERT: "CSF",
-  PROOF_OF_ADDRESS: "Comprobante",
+  TAX_STATUS_CERT: "Constancia de Situación Fiscal",
+  PROOF_OF_ADDRESS: "Comprobante de Domicilio",
 };
 
+// Tipos seleccionables por línea de operación.
 export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
 
-export const TIPO_OPERACION_LABEL: Record<TipoOperacion, string> = {
+// Resumen del expediente: un tipo real, o "MIXED" si la venta mezcla tipos.
+export type TipoOperacionResumen = TipoOperacion | "MIXED";
+
+export const TIPO_OPERACION_LABEL: Record<TipoOperacionResumen, string> = {
   ARMORING: "Blindaje",
   VEHICLE_SALE: "Venta vehículo",
+  MIXED: "Mixto",
+};
+
+// Una operación de la venta: tipo + monto. Se capturan una por una (3 blindajes =
+// 3 operaciones), cada una con su propio monto.
+export type Operacion = {
+  tipo: TipoOperacion;
+  monto: number;
 };
 
 export type Expediente = {
@@ -70,7 +82,9 @@ export type Expediente = {
   clienteCorreo: string;
   fechaCreacion: string;
   estado: Estado;
-  tipoOperacion: TipoOperacion;
+  // Resumen de la venta: un tipo real o "MIXED". El desglose va en `operaciones`.
+  tipoOperacion: TipoOperacionResumen;
+  operaciones: Operacion[];
   montoEstimado: number;
   nextStepPrioritario: string;
   capturista: string;
@@ -93,13 +107,36 @@ export type ClienteAgrupado = {
   expedientes: Expediente[];
 };
 
+// Fila COMPACTA de cliente que devuelve el backend (GET /clientes): un cliente por
+// RFC con sus agregados, SIN la lista de expedientes (esos se cargan al hacer clic).
+// `id` es la clave de agrupación: el RFC, o el id del expediente si es legacy sin RFC.
+export type ClienteResumen = {
+  id: string;
+  rfc?: string | null;
+  nombre: string;
+  telefono: string;
+  correo: string;
+  montoTotal: number;
+  totalExpedientes: number;
+  conteoPorEstado: Partial<Record<Estado, number>>;
+  tieneUrgente: boolean;
+  ultimaActividad: string;
+};
+
+// Sugerencia de RFC para el autocompletado del form de nueva venta.
+export type RfcSugerencia = {
+  rfc: string;
+  nombre: string;
+  telefono: string;
+  correo: string;
+};
+
 export type CreateExpedienteRequest = {
   clienteNombre: string;
   clienteTelefono: string;
   clienteCorreo: string;
   clienteRfc?: string;
-  montoEstimado: number;
-  tipoOperacion: TipoOperacion;
+  operaciones: Operacion[];
 };
 
 export type CreateExpedienteResponse = Expediente;
@@ -120,6 +157,7 @@ export type ConteoEstados = Record<Estado, number>;
 // --- P5 Detail types ---
 // Estados de documento del backend (DocStatus + checklist PENDING).
 export type EstadoDocumento =
+  | "PROCESSING"
   | "PENDING"
   | "RECEIVED"
   | "VALIDATED"
@@ -128,6 +166,7 @@ export type EstadoDocumento =
   | "REPLACED";
 
 export const ESTADO_DOCUMENTO_LABELS: Record<EstadoDocumento, string> = {
+  PROCESSING: "Procesando",
   PENDING: "Pendiente",
   RECEIVED: "Recibido",
   VALIDATED: "Validado",
@@ -250,7 +289,7 @@ export type ConsultaLLM = {
 export type ExpedienteDetalle = {
   expediente: Expediente & {
     montoEstimado: number;
-    tipoOperacion: TipoOperacion;
+    tipoOperacion: TipoOperacionResumen;
   };
   checklist: ChecklistItem[];
   documentos: Documento[];

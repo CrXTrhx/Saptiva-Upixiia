@@ -1,8 +1,9 @@
 "use client";
 
 import { type ReactNode, useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
+import { DUR, EASE_OUT } from "@/lib/motion";
 
 type ModalProps = {
   open: boolean;
@@ -19,6 +20,8 @@ export function Modal({
   children,
   maxWidth = "max-w-lg",
 }: ModalProps) {
+  const reduceMotion = useReducedMotion();
+
   useEffect(() => {
     if (!open) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -36,7 +39,7 @@ export function Modal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: DUR.overlay, ease: EASE_OUT }}
         >
           {/* Backdrop */}
           <div
@@ -45,14 +48,14 @@ export function Modal({
             onClick={onClose}
           />
 
-          {/* Card */}
+          {/* Card — fade + scale (sin scale si el usuario prefiere menos movimiento) */}
           <motion.div
             className={`relative ${maxWidth} w-full mx-4 rounded-xl border bg-[var(--color-surface)] p-6 shadow-lg`}
             style={{ borderColor: "var(--color-border)" }}
-            initial={{ opacity: 0, scale: 0.96 }}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.15 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+            transition={{ duration: DUR.overlay, ease: EASE_OUT }}
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-4">

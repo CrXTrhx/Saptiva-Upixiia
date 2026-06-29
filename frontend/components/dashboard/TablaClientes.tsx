@@ -1,11 +1,13 @@
 "use client";
 
+import { memo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
-import type { ClienteAgrupado } from "@/lib/types";
+import type { ClienteResumen } from "@/lib/types";
 import { statusColorMap, STATUS_DISPLAY_ORDER } from "@/lib/status";
-
-const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+import { usePaginacionRender } from "@/lib/usePaginacionRender";
+import { VerMasBtn } from "@/components/ui/VerMasBtn";
+import { EASE_OUT, DUR } from "@/lib/motion";
 
 const AVATAR_TONES: { bg: string; text: string }[] = [
   { bg: "#ECF0E8", text: "#536648" },
@@ -38,10 +40,10 @@ function formatMoney(n: number): string {
   }).format(n);
 }
 
-function ConteoChips({
+const ConteoChips = memo(function ConteoChips({
   conteo,
 }: {
-  conteo: ClienteAgrupado["conteoPorEstado"];
+  conteo: ClienteResumen["conteoPorEstado"];
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -64,7 +66,7 @@ function ConteoChips({
       })}
     </div>
   );
-}
+});
 
 function SkeletonRows() {
   return (
@@ -72,26 +74,26 @@ function SkeletonRows() {
       {Array.from({ length: 5 }).map((_, i) => (
         <div
           key={i}
-          className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-4 last:border-b-0 animate-pulse"
+          className="flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-4 last:border-b-0"
         >
-          <div className="h-9 w-9 rounded-full bg-[var(--color-border)]" />
+          <div className="skeleton h-9 w-9 rounded-full" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 w-40 rounded bg-[var(--color-border)]" />
-            <div className="h-3 w-56 rounded bg-[var(--color-border)]" />
+            <div className="skeleton h-4 w-40" />
+            <div className="skeleton h-3 w-56" />
           </div>
-          <div className="hidden sm:block h-6 w-48 rounded-full bg-[var(--color-border)]" />
+          <div className="skeleton hidden sm:block h-6 w-48 rounded-full" />
         </div>
       ))}
     </>
   );
 }
 
-function ClienteRow({
+const ClienteRow = memo(function ClienteRow({
   cliente,
   onSelect,
 }: {
-  cliente: ClienteAgrupado;
-  onSelect: (cliente: ClienteAgrupado) => void;
+  cliente: ClienteResumen;
+  onSelect: (cliente: ClienteResumen) => void;
 }) {
   const tone = avatarTone(cliente.id);
 
@@ -160,7 +162,7 @@ function ClienteRow({
       </div>
     </div>
   );
-}
+});
 
 export function TablaClientes({
   clientes,
@@ -168,12 +170,14 @@ export function TablaClientes({
   hasFilters,
   onSelectCliente,
 }: {
-  clientes: ClienteAgrupado[];
+  clientes: ClienteResumen[];
   loading: boolean;
   hasFilters: boolean;
-  onSelectCliente: (cliente: ClienteAgrupado) => void;
+  onSelectCliente: (cliente: ClienteResumen) => void;
 }) {
   const reduceMotion = useReducedMotion();
+  const { mostrados, hayMas, restantes, verMas, pageSize } =
+    usePaginacionRender(clientes, 15);
 
   return (
     <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
@@ -188,23 +192,22 @@ export function TablaClientes({
           </p>
         </div>
       ) : (
-        clientes.map((cliente, i) => (
-          <motion.div
-            key={cliente.id}
-            initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.2, delay: Math.min(i * 0.025, 0.2), ease: EASE_OUT }
-            }
-          >
-            <ClienteRow
-              cliente={cliente}
-              onSelect={onSelectCliente}
-            />
-          </motion.div>
-        ))
+        <>
+          {/* Fade rápido y sin cascada: el contenido aparece de golpe. */}
+          {mostrados.map((cliente) => (
+            <motion.div
+              key={cliente.id}
+              initial={reduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: reduceMotion ? 0 : DUR.micro, ease: EASE_OUT }}
+            >
+              <ClienteRow cliente={cliente} onSelect={onSelectCliente} />
+            </motion.div>
+          ))}
+          {hayMas && (
+            <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={verMas} />
+          )}
+        </>
       )}
     </section>
   );

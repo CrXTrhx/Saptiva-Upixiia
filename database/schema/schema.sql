@@ -262,33 +262,28 @@ CREATE TABLE app_user (
 CREATE UNIQUE INDEX ux_app_user_email_active ON app_user (lower(email)) WHERE active_flag = 1;
 
 -- =============================================================================
--- 4. SECUENCIA DE CODIGO DE EXPEDIENTE (EXP-YYYY-NNNNN, contador por anio)
+-- 4. SECUENCIA DE CODIGO DE EXPEDIENTE
+--    Formato: EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}
+--    Ej: EXP-2026-BLN00001-K7MQ. El contador NNNNN reinicia por (anio, tipo de
+--    operacion). XXXX son 4 caracteres aleatorios de un alfabeto sin caracteres
+--    confusos (sin 0/O, 1/I/L): hacen el codigo dificil de adivinar y resistente a
+--    errores de tecleo (un codigo mal escrito casi nunca coincide con otro real, asi
+--    cae a huerfanos en vez de asignarse al expediente equivocado). El codigo lo arma
+--    el trigger fn_case_set_code (mas abajo).
 -- =============================================================================
 CREATE TABLE case_code_sequence (
-    year        int      PRIMARY KEY,
-    last_number int      NOT NULL DEFAULT 0
+    year        int          NOT NULL,
+    op_code     varchar(40)  NOT NULL,
+    last_number int          NOT NULL DEFAULT 0,
+    PRIMARY KEY (year, op_code)
 );
-
-CREATE OR REPLACE FUNCTION fn_next_case_code() RETURNS varchar AS $$
-DECLARE
-    v_year int := EXTRACT(YEAR FROM now())::int;
-    v_num  int;
-BEGIN
-    INSERT INTO case_code_sequence(year, last_number)
-    VALUES (v_year, 1)
-    ON CONFLICT (year) DO UPDATE SET last_number = case_code_sequence.last_number + 1
-    RETURNING last_number INTO v_num;
-
-    RETURN 'EXP-' || v_year || '-' || lpad(v_num::text, 5, '0');
-END;
-$$ LANGUAGE plpgsql;
 
 -- =============================================================================
 -- 5. EXPEDIENTE (modulo core)
 -- =============================================================================
 CREATE TABLE case_file (
     id                  uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
-    code                varchar(20)   NOT NULL,            -- EXP-YYYY-NNNNN (autogenerado)
+    code                varchar(30)   NOT NULL,            -- EXP-AAAA-{BLN|VNT}#####-XXXX (autogenerado)
     -- Datos del cliente
     client_name         varchar(255)  NOT NULL,
     client_phone        varchar(30),
@@ -327,17 +322,60 @@ CREATE INDEX ix_case_email_trgm   ON case_file USING gin (client_email gin_trgm_
 CREATE INDEX ix_case_phone_trgm   ON case_file USING gin (client_phone gin_trgm_ops);
 CREATE INDEX ix_case_code_trgm    ON case_file USING gin (code gin_trgm_ops);
 
--- Trigger: autogenerar code si no viene
+-- Trigger: autogenerar code si no viene.
+-- Formato EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}; el contador reinicia por (anio, tipo de
+-- operacion) y XXXX son 4 caracteres aleatorios sin caracteres confusos.
 CREATE OR REPLACE FUNCTION fn_case_set_code() RETURNS trigger AS $$
+DECLARE
+    v_year   int := EXTRACT(YEAR FROM now())::int;
+    v_op     varchar(3);
+    v_num    int;
+    v_alpha  text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';  -- sin 0,O,1,I,L (faciles de confundir)
+    v_suffix text := '';
+    i        int;
 BEGIN
     IF NEW.code IS NULL OR NEW.code = '' THEN
-        NEW.code := fn_next_case_code();
+        v_op := CASE NEW.operation_type_code
+                    WHEN 'ARMORING'     THEN 'BLN'
+                    WHEN 'VEHICLE_SALE' THEN 'VNT'
+                    WHEN 'MIXED'        THEN 'MIX'
+                    ELSE 'GEN'
+                END;
+        INSERT INTO case_code_sequence(year, op_code, last_number)
+        VALUES (v_year, NEW.operation_type_code, 1)
+        ON CONFLICT (year, op_code)
+            DO UPDATE SET last_number = case_code_sequence.last_number + 1
+        RETURNING last_number INTO v_num;
+
+        -- 4 caracteres aleatorios (clave anti-confusion / anti-typo)
+        FOR i IN 1..4 LOOP
+            v_suffix := v_suffix || substr(v_alpha, floor(random() * length(v_alpha))::int + 1, 1);
+        END LOOP;
+
+        NEW.code := 'EXP-' || v_year || '-' || v_op || lpad(v_num::text, 5, '0') || '-' || v_suffix;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 CREATE TRIGGER tg_case_set_code BEFORE INSERT ON case_file
     FOR EACH ROW EXECUTE FUNCTION fn_case_set_code();
+
+-- 5b. OPERACIONES DE LA VENTA (una venta puede tener varias: 2 autos, 1 auto + 1
+--     blindaje, etc.). Se capturan UNA POR UNA (3 blindajes = 3 filas), cada una con
+--     su propio monto, ya que pueden tener precios distintos.
+--     case_file.operation_type_code es el RESUMEN (tipo unico o 'MIXED'); aqui vive el
+--     detalle por linea. estimated_amount del case = SUMA de amount de sus operaciones.
+CREATE TABLE case_operation (
+    id                  uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
+    case_file_id        uuid          NOT NULL REFERENCES case_file(id),
+    operation_type_code varchar(40)   NOT NULL REFERENCES cat_operation_type(code),
+    amount              numeric(14,2) NOT NULL CHECK (amount >= 0),
+    sort_order          smallint      NOT NULL DEFAULT 0,
+    active_flag         smallint      NOT NULL DEFAULT 1 CHECK (active_flag IN (0,1)),
+    created_at          timestamptz   NOT NULL DEFAULT now(),
+    updated_at          timestamptz   NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_caseop_case ON case_operation (case_file_id);
 
 -- =============================================================================
 -- 6. DOCUMENTO (recibido y asociado a un expediente)
@@ -359,6 +397,7 @@ CREATE TABLE document (
     rejection_note       text,
     is_auto_rejected     smallint      NOT NULL DEFAULT 0 CHECK (is_auto_rejected IN (0,1)),
     replaced_by_id       uuid          REFERENCES document(id),             -- version que lo sustituye
+    file_purged_at       timestamptz,                                       -- cron borro el archivo de R2 (fila queda como auditoria)
     reception_at         timestamptz   NOT NULL DEFAULT now(),
     validated_by_id      uuid          REFERENCES app_user(id),
     validated_at         timestamptz,
@@ -567,7 +606,10 @@ INSERT INTO cat_user_role(code, label_es, description, sort_order) VALUES
 -- Umbrales LFPIORPI 2026 (UMA $117.31)
 INSERT INTO cat_operation_type(code, label_es, lfpiorpi_fraction, identification_threshold, sat_report_threshold, cash_limit_threshold, sort_order) VALUES
     ('ARMORING',     'Blindaje de vehiculo', 'IX',   282717.10, 564847.65, 376565.10, 1),
-    ('VEHICLE_SALE', 'Venta de vehiculo',    'VIII', 376565.10, 753130.20, 376565.10, 2);
+    ('VEHICLE_SALE', 'Venta de vehiculo',    'VIII', 376565.10, 753130.20, 376565.10, 2),
+    -- 'MIXED' = venta con tipos mezclados (codigo MIX). Umbrales = el minimo entre
+    -- los tipos reales, para errar siempre hacia exigir identificacion.
+    ('MIXED',        'Mixto',                NULL,   282717.10, 564847.65, 376565.10, 3);
 
 INSERT INTO cat_case_status(code, label_es, sort_order, is_open, is_terminal) VALUES
     ('CAPTURING',          'En captura',        1, 1, 0),
@@ -601,6 +643,7 @@ INSERT INTO cat_document_type(code, label_es, is_checklist_item, validity_months
     ('OTHER',            'Otro',                                   0, NULL, 0, 0, 0, 9);
 
 INSERT INTO cat_document_status(code, label_es, sort_order) VALUES
+    ('PROCESSING','Procesando',  0),
     ('RECEIVED',  'Recibido',   1),
     ('VALIDATED', 'Validado',   2),
     ('REJECTED',  'Rechazado',  3),
@@ -661,11 +704,14 @@ INSERT INTO cat_llm_question_type(code, label_es) VALUES
     ('SAT_REPORT',   'Hay que avisar al SAT?'),
     ('CASH_PAYMENT', 'Se puede pagar en efectivo?');
 
--- Plantilla de checklist: persona fisica residente, ambos tipos de operacion
+-- Plantilla de checklist: persona fisica residente, tipos reales de operacion.
+-- 'MIXED' no lleva plantilla propia: el servicio materializa el checklist como la
+-- union de las plantillas de los tipos reales de la venta.
 INSERT INTO cat_checklist_template(operation_type_code, document_type_code, sort_order)
 SELECT ot.code, dt.code, dt.sort_order
 FROM cat_operation_type ot
 CROSS JOIN cat_document_type dt
-WHERE dt.is_checklist_item = 1;
+WHERE dt.is_checklist_item = 1
+  AND ot.code <> 'MIXED';
 
 COMMIT;

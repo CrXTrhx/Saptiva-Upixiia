@@ -1,0 +1,97 @@
+# Render Blueprint — backend FastAPI (deploy via Docker).
+# Doc: https://render.com/docs/blueprint-spec
+#
+# Como usarlo:
+#   1) Sube el repo a GitHub.
+#   2) En Render: New + -> Blueprint -> conecta el repo. Render lee este archivo.
+#   3) Rellena en el dashboard las variables marcadas como "sync: false" (secretas)
+#      y agrega el Secret File del Document AI (ver backend/DEPLOY_RENDER.md).
+#
+# La BD es Neon (externa): NO se declara database aqui, solo se pasa DATABASE_URL.
+
+services:
+  - type: web
+    name: saptiva-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: ohio            # cerca de Neon (us-east-2). Opciones: oregon|ohio|virginia|frankfurt|singapore
+    plan: starter           # "starter" no se duerme (recomendado para la demo). "free" se duerme tras 15 min.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # --- Base de datos (Neon, string DIRECTO sin -pooler) ---
+      - key: DATABASE_URL
+        sync: false
+      # --- Auth ---
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRE_MINUTES
+        value: "480"
+      - key: ADMIN_EMAIL
+        value: admin@centur.com
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Administrador
+      # --- CORS: dominio del frontend (se actualiza cuando deployes el front) ---
+      - key: CORS_ORIGINS
+        sync: false
+      # --- Datos del sistema (instrucciones al cliente) ---
+      - key: SYSTEM_WHATSAPP
+        value: "+52 55 0000 0000"
+      - key: SYSTEM_EMAIL
+        value: documentos@mg.digitalfoldr.com
+      # --- Storage: Cloudflare R2 ---
+      - key: STORAGE_BACKEND
+        value: r2
+      - key: RETENCION_REEMPLAZOS_DIAS
+        value: "7"
+      - key: RETENCION_OTHER_DIAS
+        value: "1"
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      # --- Google Document AI ---
+      - key: GCP_PROJECT_ID
+        sync: false
+      - key: DOCAI_LOCATION
+        value: us
+      - key: DOCAI_CLASSIFIER_ID
+        sync: false
+      - key: DOCAI_EXTRACTOR_OFFICIAL_ID
+        sync: false
+      - key: DOCAI_EXTRACTOR_CURP
+        sync: false
+      - key: DOCAI_EXTRACTOR_TAX_STATUS
+        sync: false
+      - key: DOCAI_EXTRACTOR_PROOF_ADDRESS
+        sync: false
+      # Ruta DENTRO del contenedor al Secret File que subes en el dashboard.
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/document-ai-service-account.json
+      # --- Correo (Mailgun) ---
+      - key: MAILGUN_API_KEY
+        sync: false
+      - key: MAILGUN_DOMAIN
+        value: mg.digitalfoldr.com
+      # Remitente RESPONDIBLE: usa la bandeja de documentos (no noreply) para que el
+      # cliente pueda responder y sus archivos lleguen al webhook entrante.
+      - key: MAIL_FROM
+        value: Digital Foldr <documentos@mg.digitalfoldr.com>
+      - key: MAILGUN_BASE_URL
+        value: https://api.mailgun.net
+      - key: MAILGUN_SIGNING_KEY
+        sync: false
+      # --- LLM (stub por ahora; pon LLM_USE_REAL=true + ANTHROPIC_API_KEY para real) ---
+      - key: LLM_USE_REAL
+        value: "false"
+      - key: EXTRACTION_CONFIDENCE_THRESHOLD
+        value: "70"

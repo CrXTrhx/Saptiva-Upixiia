@@ -33,11 +33,11 @@ function SkeletonCards() {
       {Array.from({ length: 7 }).map((_, i) => (
         <div
           key={i}
-          className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 animate-pulse"
+          className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
         >
-          <div className="h-3 w-10 rounded bg-[var(--color-border)] mb-3" />
-          <div className="h-7 w-12 rounded bg-[var(--color-border)] mb-2" />
-          <div className="h-3 w-16 rounded bg-[var(--color-border)]" />
+          <div className="skeleton h-3 w-10 mb-3" />
+          <div className="skeleton h-7 w-12 mb-2" />
+          <div className="skeleton h-3 w-16" />
         </div>
       ))}
     </div>

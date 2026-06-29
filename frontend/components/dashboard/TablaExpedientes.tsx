@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { Expediente } from "@/lib/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { VerMasBtn } from "@/components/ui/VerMasBtn";
 
 const GRID_COLS = "160px 1.4fr 130px 150px 1.5fr 160px";
 
@@ -49,16 +50,39 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   );
 }
 
+function CargandoMas() {
+  return (
+    <div className="flex justify-center border-t border-[var(--color-border)] p-3">
+      <span className="inline-flex items-center gap-2 text-xs text-[var(--color-muted)]">
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--color-border)] border-t-[var(--color-accent)]" />
+        Cargando más…
+      </span>
+    </div>
+  );
+}
+
 export function TablaExpedientes({
   expedientes,
+  total,
   loading,
+  loadingMas,
   hasFilters,
+  pageSize,
+  onVerMas,
 }: {
   expedientes: Expediente[];
+  total: number;
   loading: boolean;
+  loadingMas: boolean;
   hasFilters: boolean;
+  pageSize: number;
+  onVerMas: () => void;
 }) {
   const router = useRouter();
+  // Paginación servida por el backend: `expedientes` son los ya cargados; `total` el
+  // total real. "Ver más" pide la siguiente página (no es windowing en memoria).
+  const hayMas = expedientes.length < total;
+  const restantes = total - expedientes.length;
 
   function handleRowClick(id: string) {
     router.push(`/expedientes/${id}`);
@@ -168,6 +192,12 @@ export function TablaExpedientes({
               );
             })
           )}
+          {!loading && hayMas &&
+            (loadingMas ? (
+              <CargandoMas />
+            ) : (
+              <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={onVerMas} />
+            ))}
         </div>
 
         {/* Mobile (<640px) — compact cards */}
@@ -222,6 +252,12 @@ export function TablaExpedientes({
               );
             })
           )}
+          {!loading && hayMas &&
+            (loadingMas ? (
+              <CargandoMas />
+            ) : (
+              <VerMasBtn restantes={restantes} pageSize={pageSize} onClick={onVerMas} />
+            ))}
         </div>
       </div>
     </section>

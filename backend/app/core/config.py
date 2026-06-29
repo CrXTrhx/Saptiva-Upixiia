@@ -30,10 +30,15 @@ class Settings(BaseSettings):
 
     # Datos del sistema (instrucciones al cliente)
     system_whatsapp: str = "+52 55 0000 0000"
-    system_email: str = "documentos@centur.com"
+    system_email: str = "documentos@mg.digitalfoldr.com"
 
     # Storage
     storage_backend: str = "local"  # local | r2
+    # Retencion (en dias) de archivos temporales en R2 antes de que el cron los borre.
+    # reemplazos: versiones reemplazadas de 2+ niveles atras (conserva vigente + 1 anterior).
+    # other: documentos clasificados OTHER y rechazados (basura que no es ninguno de los 4 tipos).
+    retencion_reemplazos_dias: int = 7
+    retencion_other_dias: int = 7
     r2_account_id: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
@@ -41,11 +46,25 @@ class Settings(BaseSettings):
     r2_public_base_url: str = ""
 
     # Integraciones
-    document_api_url: str = "https://adjudicator.saptiva.com"
-    document_api_key: str = ""
+    # Google Document AI: 1 clasificador (verifica el tipo) + 1 extractor por tipo.
+    gcp_project_id: str = ""
+    docai_location: str = "us"  # us | eu (Document AI no tiene region LATAM)
+    docai_classifier_id: str = ""
+    docai_extractor_official_id: str = ""   # INE / identificacion oficial
+    docai_extractor_curp: str = ""
+    docai_extractor_tax_status: str = ""    # Constancia de Situacion Fiscal
+    docai_extractor_proof_address: str = ""  # Comprobante de domicilio
+    # Ruta al JSON del service account; si se define, se exporta a la env var estandar.
+    google_application_credentials: str = ""
     sinch_api_token: str = ""
     sinch_webhook_secret: str = ""
     email_webhook_secret: str = ""
+    # Correo (Mailgun): envio saliente (confirmaciones) + recepcion de documentos.
+    mailgun_api_key: str = ""             # Private API key de Mailgun
+    mailgun_domain: str = ""              # mg.digitalfoldr.com
+    mailgun_base_url: str = "https://api.mailgun.net"  # region EU: https://api.eu.mailgun.net
+    mailgun_signing_key: str = ""         # HTTP webhook signing key (valida correos entrantes)
+    mail_from: str = ""                   # "Upiixia <noreply@mg.digitalfoldr.com>"
     anthropic_api_key: str = ""
     llm_use_real: bool = False
     extraction_confidence_threshold: float = 70.0

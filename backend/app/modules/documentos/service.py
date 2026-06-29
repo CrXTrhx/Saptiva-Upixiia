@@ -15,6 +15,8 @@ from app.core.codes import (
     DocType,
     EventType,
 )
+from app.core.codes import RejectionReason
+from app.core.db import db_session
 from app.core.errors import ConflictError, NotFoundError
 from app.integrations import storage
 from app.models import AppUser, CaseChecklistItem, CaseFile, Document
@@ -64,7 +66,9 @@ def ingest_document(
     actor_user_id: uuid.UUID | None = None,
 ) -> Document:
     """Almacena el archivo, crea el Documento y corre el pipeline."""
-    stored = storage.store(content, file_name, mime_type)
+    stored = storage.store(
+        content, file_name, mime_type, prefix=case.code, doc_type=declared_type
+    )
     doc = Document(
         case_file_id=case.id,
         declared_type_code=declared_type,
@@ -85,11 +89,87 @@ def ingest_document(
         declared_type=declared_type,
         file_name=stored.file_name,
         mime_type=stored.mime_type,
+        content=content,
         actor=actor,
         actor_user_id=actor_user_id,
     )
     run_pipeline(ctx)
     return doc
+
+
+def create_processing_document(
+    db: Session,
+    case: CaseFile,
+    *,
+    content: bytes,
+    file_name: str,
+    mime_type: str | None,
+    channel: str,
+    sender: str | None,
+    declared_type: str | None,
+) -> Document:
+    """Almacena el archivo y crea el Documento en estado PROCESSING (sin pipeline).
+
+    El analisis (Document AI) lo corre `process_document` en segundo plano. Guardar
+    el documento de inmediato lo hace visible aunque el usuario recargue la pagina.
+    """
+    stored = storage.store(
+        content, file_name, mime_type, prefix=case.code, doc_type=declared_type
+    )
+    doc = Document(
+        case_file_id=case.id,
+        declared_type_code=declared_type,
+        file_url=stored.url,
+        file_name=stored.file_name,
+        mime_type=stored.mime_type,
+        channel_code=channel,
+        sender=sender,
+        status_code=DocStatus.PROCESSING,
+    )
+    db.add(doc)
+    db.flush()
+    return doc
+
+
+def process_document(
+    doc_id: str,
+    *,
+    actor: str = "system",
+    actor_user_id: uuid.UUID | None = None,
+) -> None:
+    """Corre el pipeline de extraccion/validacion sobre un documento PROCESSING.
+
+    Se ejecuta en segundo plano (BackgroundTask), por lo que abre su PROPIA sesion.
+    Si algo inesperado falla, marca el documento como rechazado para no dejarlo
+    colgado en PROCESSING.
+    """
+    uid_actor = str(actor_user_id) if actor_user_id else None
+    try:
+        with db_session(user_id=uid_actor, user_label=actor) as db:
+            doc = db.get(Document, uuid.UUID(str(doc_id)))
+            if doc is None or doc.status_code != DocStatus.PROCESSING:
+                return
+            case = db.get(CaseFile, doc.case_file_id)
+            try:
+                content = storage.read(doc.file_url)
+            except Exception:
+                content = None
+            ctx = PipelineContext(
+                db=db, document=doc, case=case,
+                declared_type=doc.declared_type_code,
+                file_name=doc.file_name or "documento", mime_type=doc.mime_type,
+                content=content, actor=actor, actor_user_id=actor_user_id,
+            )
+            run_pipeline(ctx)
+    except Exception:
+        # Red de seguridad: no dejar el documento atascado en PROCESSING.
+        with db_session(user_id=uid_actor, user_label=actor) as db:
+            doc = db.get(Document, uuid.UUID(str(doc_id)))
+            if doc is not None and doc.status_code == DocStatus.PROCESSING:
+                doc.status_code = DocStatus.REJECTED
+                doc.rejection_reason_code = RejectionReason.OTHER
+                doc.rejection_note = "No se pudo procesar el documento"
+                doc.is_auto_rejected = 1
 
 
 def ingest_existing(
@@ -119,9 +199,17 @@ def ingest_existing(
     db.add(doc)
     db.flush()
 
+    # El archivo ya esta almacenado; recuperamos los bytes para que el pipeline pueda
+    # reclasificar/extraer con Document AI.
+    try:
+        content = storage.read(file_url)
+    except Exception:
+        content = None
+
     ctx = PipelineContext(
         db=db, document=doc, case=case, declared_type=declared_type,
-        file_name=file_name, mime_type=mime_type, actor=actor, actor_user_id=actor_user_id,
+        file_name=file_name, mime_type=mime_type, content=content,
+        actor=actor, actor_user_id=actor_user_id,
     )
     run_pipeline(ctx)
     return doc
@@ -138,7 +226,7 @@ def validar_documento(db: Session, doc: Document, user: AppUser) -> Document:
     doc.validated_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item:
         item.status_code = ChecklistStatus.VALIDATED
@@ -165,7 +253,7 @@ def rechazar_documento(
     doc.is_auto_rejected = 0
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item and item.current_document_id == doc.id:
         item.status_code = ChecklistStatus.REJECTED
@@ -195,7 +283,7 @@ def revertir_rechazo(db: Session, doc: Document, user: AppUser) -> Document:
     doc.is_auto_rejected = 0
     db.flush()
 
-    doc_type = doc.detected_type_code or doc.declared_type_code
+    doc_type = doc.declared_type_code or doc.detected_type_code
     item = _checklist_item(db, doc.case_file_id, doc_type)
     if item and item.status_code != ChecklistStatus.VALIDATED:
         item.status_code = ChecklistStatus.RECEIVED
@@ -224,11 +312,13 @@ def reemplazar_documento(
     case = db.get(CaseFile, doc.case_file_id)
     declared = doc.declared_type_code or doc.detected_type_code
 
-    nuevo = ingest_document(
+    # Igual que la subida nueva: el documento entrante queda en PROCESSING y se
+    # analiza con Document AI en segundo plano (process_document). Asi el frontend
+    # muestra la animacion de "en analisis" tambien al reemplazar.
+    nuevo = create_processing_document(
         db, case,
         content=content, file_name=file_name, mime_type=mime_type,
         channel=Channel.DIRECT_UPLOAD, sender=user.email, declared_type=declared,
-        actor=user.email, actor_user_id=user.id,
     )
 
     doc.status_code = DocStatus.REPLACED
@@ -242,6 +332,53 @@ def reemplazar_documento(
     )
     ns.recompute(db, case)
     return nuevo
+
+
+def restaurar_version(db: Session, doc: Document, user: AppUser) -> Document:
+    """Restaura la version anterior de un documento (inverso de reemplazar).
+
+    `doc` es el documento vigente. Busca la version inmediatamente anterior
+    (la que apunta a `doc` via replaced_by_id) y la vuelve a dejar activa,
+    enviando `doc` al historico. Es un swap de roles, por lo que solo se puede
+    retroceder un nivel: la version que se restaura mostrara a `doc` como su
+    nueva "version anterior".
+    """
+    prev = db.execute(
+        select(Document)
+        .where(Document.replaced_by_id == doc.id)
+        .order_by(Document.reception_at.desc())
+    ).scalars().first()
+    if prev is None:
+        raise ConflictError("El documento no tiene una version anterior")
+
+    # La version anterior vuelve a estar vigente, pendiente de revalidacion.
+    prev.status_code = DocStatus.RECEIVED
+    prev.replaced_by_id = None
+    prev.rejection_reason_code = None
+    prev.rejection_note = None
+    prev.is_auto_rejected = 0
+
+    # El documento vigente pasa al historico apuntando a la version restaurada,
+    # de modo que ahora figure como su version anterior (intercambio de roles).
+    doc.status_code = DocStatus.REPLACED
+    doc.replaced_by_id = prev.id
+    db.flush()
+
+    case = db.get(CaseFile, doc.case_file_id)
+    doc_type = prev.detected_type_code or prev.declared_type_code
+    item = _checklist_item(db, prev.case_file_id, doc_type)
+    if item:
+        item.status_code = ChecklistStatus.RECEIVED
+        item.current_document_id = prev.id
+        db.flush()
+
+    registrar_evento(
+        db, case.id, EventType.DOCUMENT_REPLACED,
+        f"Documento {doc_type or ''} restaurado a la version anterior por {user.full_name}",
+        actor=user.email, actor_user_id=user.id,
+    )
+    ns.recompute(db, case)
+    return prev
 
 
 def _maybe_to_validation(db: Session, case: CaseFile, user: AppUser) -> None:

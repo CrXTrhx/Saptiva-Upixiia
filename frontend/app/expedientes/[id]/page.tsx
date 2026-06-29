@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -8,6 +8,7 @@ import {
   ArrowLeft, ChevronRight, Check, X, Clock, AlertTriangle,
   FileText, Upload, MessageSquare, Mail, Phone, Pencil, Send,
   Archive, Ban, ArrowRight, Sparkles, Plus, RefreshCw, CornerUpLeft,
+  ChevronDown, MessageCircle, Copy, Loader2,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazarModal";
@@ -16,9 +17,11 @@ import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpe
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
 import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
 import { Modal } from "@/components/ui/Modal";
-import { expedientesService } from "@/services/expedientesService";
+import { expedientesService, type InstruccionesPreview } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
+import { TIPO_OPERACION_ICONO } from "@/lib/operacion-iconos";
 import {
+  DOCUMENTOS_REQUERIDOS,
   DOCUMENTO_REQUERIDO_LABELS,
   CANAL_LABELS,
   EVENT_TYPE_LABELS,
@@ -47,7 +50,7 @@ function localizarDescripcion(texto: string): string {
   return texto.replace(CODIGO_RE, (m) => CODIGO_A_ETIQUETA[m] ?? m);
 }
 import type {
-  ChecklistItem as ChecklistItemType,
+  ChecklistItem,
   ConsultaLLM,
   Documento,
   DocumentoRequerido,
@@ -56,6 +59,7 @@ import type {
   Evento,
   ExpedienteDetalle,
   MotivoRechazo,
+  NextStep,
   Nota,
   PrioridadNextStep,
   Canal,
@@ -80,6 +84,7 @@ const estadoGlobalConfig: Record<Estado, { label: string; dot: string; bg: strin
 };
 
 const docEstadoConfig: Record<string, { label: string; dot: string; bg: string; text: string; Icon: typeof Check }> = {
+  PROCESSING:{ label: "Procesando",  dot: "#C99A5B", bg: "#FBEFD9", text: "#A86518", Icon: Sparkles },
   PENDING:   { label: "Pendiente",   dot: "#989396", bg: "#EAE7E6", text: "#5C5957", Icon: Clock },
   RECEIVED:  { label: "Recibido",    dot: "#8C9AAD", bg: "#EBEEF2", text: "#4F5A6B", Icon: FileText },
   VALIDATED: { label: "Validado",    dot: "#8FA585", bg: "#ECF0E8", text: "#536648", Icon: Check },
@@ -120,16 +125,16 @@ function Badge({ cfg, small }: { cfg: { dot: string; bg: string; text: string; l
   );
 }
 
-function Card({ children, className = "", delay = 0, hover = true, style }: {
+function Card({ children, className = "", hover = true, style }: {
   children: React.ReactNode; className?: string; delay?: number; hover?: boolean; style?: React.CSSProperties;
 }) {
   return (
     <motion.div
       className={`rounded-xl bg-white ${className}`}
       style={{ border: "1px solid #E5DED6", ...style }}
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay, ease: EASE_OUT }}
+      transition={{ duration: 0.2, ease: EASE_OUT }}
       whileHover={hover ? { y: -1, transition: { duration: 0.2 } } : undefined}
     >
       {children}
@@ -182,6 +187,315 @@ function ActionBtn({ icon: Icon, children, onClick, danger, disabled }: {
   );
 }
 
+// ═══════════════════════════════════════════
+// "Reenviar instrucciones" → menú desplegable (Correo / WhatsApp / Copiar)
+// - "Enviar por correo" abre un panel con la vista previa del correo (onAbrirCorreo).
+// - "Enviar por WhatsApp" queda deshabilitado mientras no se pase onEnviarWhatsApp
+//   ("No disponible por ahora").
+// - "Copiar instrucciones" copia el texto que devuelve el host.
+// El componente NO hace fetch; el host conecta los callbacks a la API ya existente.
+// Maneja apertura/cierre, click-fuera, Escape, loading y toasts (vía onToast).
+//
+// EJEMPLO_USO:
+//   <ReenviarInstruccionesMenu
+//     expediente={exp}
+//     disabled={esCancelado}
+//     onToast={showToast}
+//     onAbrirCorreo={(exp) => abrirCorreoModal()}                 // abre el panel
+//     onCopiarInstrucciones={async (exp) => (await api.getInstrucciones(exp.id)).texto}
+//     // onEnviarWhatsApp={async (exp) => { ... }}  // opcional; sin él queda deshabilitado
+//   />
+// ═══════════════════════════════════════════
+
+type ReenviarExpediente = {
+  id: string;
+  clienteCorreo?: string | null;
+  clienteTelefono?: string | null;
+  // Fallback genérico por si el host pasa otro shape (defensivo, sin asumir más).
+  correo?: string | null;
+  telefono?: string | null;
+};
+
+async function copiarAlPortapapeles(texto: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return;
+  } catch {
+    // Fallback para navegadores/contextos sin Clipboard API.
+    const ta = document.createElement("textarea");
+    ta.value = texto;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (!ok) throw new Error("No se pudo copiar");
+  }
+}
+
+function ReenviarInstruccionesMenu({
+  expediente,
+  onAbrirCorreo,
+  onEnviarWhatsApp,
+  onCopiarInstrucciones,
+  onToast,
+  disabled,
+}: {
+  expediente: ReenviarExpediente;
+  onAbrirCorreo?: (expediente: ReenviarExpediente) => void;
+  onEnviarWhatsApp?: (expediente: ReenviarExpediente) => Promise<void>;
+  onCopiarInstrucciones?: (expediente: ReenviarExpediente) => Promise<string>;
+  onToast?: (msg: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [accion, setAccion] = useState<null | "whatsapp" | "copiar">(null);
+
+  // Cerrar con Escape mientras el menú está abierto.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const correo = expediente?.clienteCorreo ?? expediente?.correo ?? "";
+  const telefono = expediente?.clienteTelefono ?? expediente?.telefono ?? "";
+  const cargando = accion !== null;
+  const whatsappListo = !!onEnviarWhatsApp; // por ahora no se pasa → deshabilitado
+
+  function abrirCorreo() {
+    if (!correo) return;
+    setOpen(false);
+    onAbrirCorreo?.(expediente);
+  }
+
+  // Acciones asíncronas con loading + toast (WhatsApp cuando exista; Copiar).
+  async function correr(a: "whatsapp" | "copiar") {
+    setOpen(false);
+    setAccion(a);
+    try {
+      if (a === "whatsapp") {
+        await onEnviarWhatsApp?.(expediente);
+        onToast?.("Instrucciones enviadas por WhatsApp");
+      } else {
+        const texto = (await onCopiarInstrucciones?.(expediente)) ?? "";
+        await copiarAlPortapapeles(texto);
+        onToast?.("Instrucciones copiadas al portapapeles");
+      }
+    } catch {
+      onToast?.(
+        a === "whatsapp"
+          ? "No se pudieron enviar por WhatsApp"
+          : "No se pudieron copiar las instrucciones",
+      );
+    } finally {
+      setAccion(null);
+    }
+  }
+
+  type Opcion = {
+    key: "correo" | "whatsapp" | "copiar";
+    show: boolean;
+    Icon: typeof Mail;
+    label: string;
+    deshabilitada: boolean;
+    motivo: string;
+    onClick: () => void;
+  };
+
+  const todasLasOpciones: Opcion[] = [
+    {
+      key: "correo",
+      show: !!onAbrirCorreo,
+      Icon: Mail,
+      label: "Enviar por correo",
+      deshabilitada: !correo,
+      motivo: "Sin correo registrado",
+      onClick: abrirCorreo,
+    },
+    {
+      key: "whatsapp",
+      show: true,
+      Icon: MessageCircle,
+      label: "Enviar por WhatsApp",
+      deshabilitada: !whatsappListo || !telefono,
+      motivo: !whatsappListo ? "No disponible por ahora" : "Sin teléfono registrado",
+      onClick: () => correr("whatsapp"),
+    },
+    {
+      key: "copiar",
+      show: !!onCopiarInstrucciones,
+      Icon: Copy,
+      label: "Copiar instrucciones",
+      deshabilitada: false,
+      motivo: "",
+      onClick: () => correr("copiar"),
+    },
+  ];
+  const opciones = todasLasOpciones.filter((o) => o.show);
+
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled || cargando}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+        style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+        onMouseEnter={(e) => { if (!disabled && !cargando) e.currentTarget.style.borderColor = "#B5AFA9"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#E5DED6"; }}
+      >
+        {cargando ? (
+          <Loader2 size={13} strokeWidth={1.75} className="animate-spin" />
+        ) : (
+          <Send size={13} strokeWidth={1.75} />
+        )}
+        {cargando ? "Copiando…" : "Reenviar instrucciones"}
+        {!cargando && (
+          <ChevronDown
+            size={12}
+            strokeWidth={1.75}
+            className="ml-auto"
+            style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}
+          />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <>
+            {/* Overlay invisible: cierra al hacer clic fuera. */}
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <motion.div
+              role="menu"
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: EASE_OUT }}
+              className="absolute right-0 top-full mt-2 z-50 min-w-[220px] overflow-hidden rounded-xl bg-white"
+              style={{ border: "1px solid #E5DED6", boxShadow: "0 10px 30px rgba(17,24,39,0.12)" }}
+            >
+              {opciones.map(({ key, Icon, label, deshabilitada, motivo, onClick }) => {
+                const itemDisabled = deshabilitada || cargando;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="menuitem"
+                    disabled={itemDisabled}
+                    onClick={onClick}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-[13px] transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    style={{ color: "#5C5957", opacity: itemDisabled ? 0.5 : 1 }}
+                    onMouseEnter={(e) => { if (!itemDisabled) e.currentTarget.style.backgroundColor = "#FAF6F1"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                  >
+                    <Icon size={14} strokeWidth={1.75} style={{ color: "#989396" }} className="shrink-0" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block">{label}</span>
+                      {deshabilitada && motivo && (
+                        <span className="block text-[11px]" style={{ color: "#B5AFA9" }}>{motivo}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// Fila "De / Para / Asunto" dentro del panel de vista previa del correo.
+function CampoCorreo({ label, value, mono, warn }: { label: string; value: string; mono?: boolean; warn?: boolean }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="w-14 shrink-0 text-[11px] uppercase tracking-wider" style={{ color: "#B5AFA9" }}>{label}</span>
+      <span className={`text-[13px] min-w-0 break-words ${mono ? "font-mono tabular-nums" : ""}`} style={{ color: warn ? "#9C4B2E" : "#302F2D" }}>{value}</span>
+    </div>
+  );
+}
+
+// Panel de vista previa del correo de instrucciones: muestra De/Para/Asunto/Cuerpo
+// (lo arma el backend) y permite enviarlo realmente al correo del expediente.
+function PreviewCorreoModal({
+  open,
+  onClose,
+  data,
+  cargando,
+  enviando,
+  onEnviar,
+}: {
+  open: boolean;
+  onClose: () => void;
+  data: InstruccionesPreview | null;
+  cargando: boolean;
+  enviando: boolean;
+  onEnviar: () => void;
+}) {
+  const sinCorreo = !data?.destinatario;
+  return (
+    <Modal open={open} onClose={onClose} title="Reenviar instrucciones por correo" maxWidth="max-w-2xl">
+      {cargando || !data ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={22} strokeWidth={1.75} className="animate-spin" style={{ color: "#F19B42" }} />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-[12px]" style={{ color: "#989396" }}>
+            Vista previa del correo que se enviará al cliente del expediente.
+          </p>
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid #E5DED6" }}>
+            <div className="px-4 py-3 space-y-1.5" style={{ backgroundColor: "#FAF6F1", borderBottom: "1px solid #E5DED6" }}>
+              <CampoCorreo label="De" value={data.remitente || "—"} />
+              <CampoCorreo label="Para" value={data.destinatario || "Sin correo registrado"} warn={sinCorreo} />
+              <CampoCorreo label="Asunto" value={data.asunto} mono />
+            </div>
+            <div className="px-4 py-4 max-h-[42vh] overflow-y-auto" style={{ backgroundColor: "#FFFFFF" }}>
+              <pre className="whitespace-pre-wrap break-words text-[13px] leading-relaxed" style={{ color: "#302F2D", fontFamily: "inherit" }}>{data.texto}</pre>
+            </div>
+          </div>
+          {sinCorreo && (
+            <p className="flex items-center gap-1.5 text-[12px]" style={{ color: "#9C4B2E" }}>
+              <AlertTriangle size={13} strokeWidth={1.75} className="shrink-0" />
+              Este expediente no tiene correo registrado. Edita los datos del cliente para poder enviar.
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={enviando}
+              className="text-[12px] font-medium px-3 py-2 rounded-md bg-white cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={onEnviar}
+              disabled={sinCorreo || enviando}
+              className="flex items-center gap-1.5 text-[12px] font-medium px-3.5 py-2 rounded-md cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-white"
+              style={{ backgroundColor: "#302F2D" }}
+            >
+              {enviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} strokeWidth={1.75} />}
+              {enviando ? "Enviando…" : "Enviar correo"}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function FauxPdfPage({ tipo }: { tipo: string }) {
   return (
     <div className="w-full h-full flex flex-col p-3" style={{ backgroundColor: "#FDFCFA" }}>
@@ -209,7 +523,10 @@ function FauxPdfPage({ tipo }: { tipo: string }) {
   );
 }
 
-function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
+// React.memo evita recargar el <iframe>/<img> cuando el polling devuelve una nueva URL
+// firmada para el mismo documento (las presigned URLs de R2 cambian en cada request).
+const DocPreview = React.memo(
+  function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) => void }) {
   const ext = doc.filename.split(".").pop()?.toUpperCase() ?? "";
   const isPdf = doc.mimeType === "application/pdf" || doc.filename.endsWith(".pdf");
   const isImage = doc.mimeType.startsWith("image/");
@@ -226,8 +543,14 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
       <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider text-white" style={{ backgroundColor: "rgba(48,47,45,0.7)" }}>{ext}</span>
       {isImage && doc.archivoUrl ? (
         <img src={doc.archivoUrl} alt={doc.filename} className="w-full h-full object-cover" />
-      ) : isPdf ? (
-        <FauxPdfPage tipo={doc.tipo} />
+      ) : isPdf && doc.archivoUrl ? (
+        <iframe
+          src={`${doc.archivoUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+          title={doc.filename}
+          scrolling="no"
+          className="w-full h-full"
+          style={{ pointerEvents: "none", border: "none" }}
+        />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ backgroundColor: "#FAF6F1" }}>
           <FileText size={28} strokeWidth={1.5} style={{ color: "#B5AFA9" }} />
@@ -241,14 +564,46 @@ function DocPreview({ doc, onOpen }: { doc: Documento; onOpen: (doc: Documento) 
       )}
     </button>
   );
-}
+},
+// Solo re-renderiza si cambia el id, estado, nombre o si la URL pasa de null a tener valor.
+// Esto evita que el iframe/img se recargue cada vez que el polling devuelve una nueva
+// presigned URL para el mismo archivo.
+(prev, next) =>
+  prev.doc.id === next.doc.id &&
+  prev.doc.estado === next.doc.estado &&
+  prev.doc.filename === next.doc.filename &&
+  !(!prev.doc.archivoUrl && next.doc.archivoUrl),
+);
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
-  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior, readOnly }: {
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void; readOnly?: boolean;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.PENDING;
   const ccfg = canalConfig[doc.canal];
   const CanalIcon = ccfg?.Icon ?? Upload;
+
+  if (doc.estado === "PROCESSING") {
+    return (
+      <div className="rounded-lg p-4 flex gap-4" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
+        <div className="w-16 h-20 rounded-md flex items-center justify-center shrink-0" style={{ backgroundColor: "#F0EBE5" }}>
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.1, ease: "linear" }}>
+            <Sparkles size={18} strokeWidth={1.75} style={{ color: "#C99A5B" }} />
+          </motion.div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[14px] font-semibold" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo}</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: "#FBEFD9", color: "#A86518" }}>Analizando…</span>
+          </div>
+          <p className="font-mono text-[11px] mb-2 truncate" style={{ color: "#989396" }}>{doc.filename}</p>
+          <p className="text-[11px] mb-2" style={{ color: "#5C5957" }}>Procesando documento con Document AI…</p>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "#F0EBE5" }}>
+            <motion.div className="h-full rounded-full" style={{ width: "40%", backgroundColor: "#C99A5B" }} animate={{ x: ["-100%", "250%"] }} transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg p-4 flex gap-4 flex-wrap md:flex-nowrap" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
@@ -285,24 +640,35 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen }: {
           </div>
         )}
         {doc.versionAnterior && (
-          <div className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer" style={{ color: "#A86518" }}>
+          <button
+            type="button"
+            onClick={() => onVerVersionAnterior(doc)}
+            className="flex items-center gap-1 mb-2 text-[10px] cursor-pointer rounded px-1 -mx-1 py-0.5 transition-colors hover:underline"
+            style={{ color: "#A86518" }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#FCEEDB")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+          >
             <CornerUpLeft size={10} />
             Ver versión anterior · {new Date(doc.versionAnterior.fechaRecepcion).toLocaleDateString("es-MX")}
+          </button>
+        )}
+        {!readOnly && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {doc.estado !== "VALIDATED" && (
+              <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
+                <Check size={11} strokeWidth={2.25} /> Validar
+              </button>
+            )}
+            {doc.estado !== "REJECTED" && (
+              <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
+                <X size={11} /> Rechazar
+              </button>
+            )}
+            <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
+              <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
+            </button>
           </div>
         )}
-        <div className="flex items-center gap-2 flex-wrap">
-          {doc.estado !== "VALIDATED" && (
-            <button onClick={() => onValidar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
-              <Check size={11} strokeWidth={2.25} /> Validar
-            </button>
-          )}
-          <button onClick={() => onRechazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
-            <X size={11} /> Rechazar
-          </button>
-          <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
-            <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -332,6 +698,37 @@ export default function ExpedienteDetallePage() {
 // MAIN COMPONENT — ALL LOGIC PRESERVED EXACTLY
 // ═══════════════════════════════════════════
 
+function deriveNextSteps(checklist: ChecklistItem[], documentos: Documento[]): NextStep[] {
+  const activeByTipo = new Map<DocumentoRequerido, Documento>(documentos.map((doc) => [doc.tipo, doc]));
+  const steps: NextStep[] = [];
+
+  const addStep = (id: string, texto: string, prioridad: PrioridadNextStep) => {
+    steps.push({ id, texto, prioridad });
+  };
+
+  const csf = activeByTipo.get("TAX_STATUS_CERT");
+  if (csf?.estado === "REJECTED") {
+    addStep("ns-csf-rechazado", "Solicitar nueva Constancia de Situación Fiscal al cliente (rechazada por vencimiento)", "HIGH");
+  }
+
+  const curp = activeByTipo.get("CURP");
+  if (curp?.estado === "RECEIVED") {
+    addStep("ns-validar-curp", "Validar CURP recibida", "HIGH");
+  }
+
+  const comprobante = activeByTipo.get("PROOF_OF_ADDRESS");
+  if (!comprobante || comprobante.estado === "PENDING") {
+    addStep("ns-solicitar-comprobante", "Solicitar comprobante de domicilio", "MEDIUM");
+  }
+
+  const ine = activeByTipo.get("OFFICIAL_ID");
+  if (ine?.estado === "VALIDATED") {
+    addStep("ns-revisar-ine", "Revisar datos extraídos de INE", "LOW");
+  }
+
+  return steps;
+}
+
 function DetalleContent() {
   const params = useParams();
   const router = useRouter();
@@ -350,21 +747,99 @@ function DetalleContent() {
       .catch(() => setDataStatus("error"));
   }, [id]);
 
+  // Refresca el detalle periodicamente para reflejar cambios que ocurren fuera de esta
+  // pantalla SIN tener que recargar: documentos que llegan por correo, resultados del
+  // analisis (datos extraidos, estado, historial), etc. Si hay documentos en analisis
+  // (PROCESSING) sondea mas seguido; en reposo mantiene un sondeo base para que las
+  // cards aparezcan solas cuando entra un documento por otro canal. El estado vive en el
+  // backend, asi que esto sigue funcionando aunque se recargue la pagina.
+  const hayProcesando = (detalle?.documentos ?? []).some((d) => d.estado === "PROCESSING");
+  // Firma del contenido SIN las URLs prefirmadas (cambian en cada respuesta, válidas 1h):
+  // así un sondeo que no trae cambios reales no re-renderiza el árbol (con framer-motion).
+  const firmaRef = useRef<string>("");
+  const ultimaRenovacionUrlsRef = useRef(0);
+  useEffect(() => {
+    if (detalle) {
+      firmaRef.current = JSON.stringify(detalle, (k, v) =>
+        k === "archivoUrl" ? undefined : v,
+      );
+      ultimaRenovacionUrlsRef.current = Date.now();
+    }
+  }, [detalle]);
+
+  useEffect(() => {
+    if (dataStatus !== "loaded") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const intervalo = hayProcesando ? 2500 : 5000;
+
+    const refrescar = async () => {
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (disposed || !fresh) return;
+      const firma = JSON.stringify(fresh, (k, v) =>
+        k === "archivoUrl" ? undefined : v,
+      );
+      const debeRenovarUrls =
+        Date.now() - ultimaRenovacionUrlsRef.current >= 45 * 60 * 1000;
+      if (firma !== firmaRef.current || debeRenovarUrls) {
+        firmaRef.current = firma;
+        ultimaRenovacionUrlsRef.current = Date.now();
+        setDetalle(fresh);
+      }
+    };
+
+    const stop = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const programar = () => {
+      stop();
+      if (disposed || document.visibilityState !== "visible") return;
+      timer = setTimeout(async () => {
+        timer = null;
+        await refrescar();
+        programar();
+      }, intervalo);
+    };
+
+    // Pausa el sondeo cuando la pestaña está oculta; al volver, refresca y reanuda.
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+      else {
+        void refrescar().finally(programar);
+      }
+    };
+
+    programar();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      disposed = true;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [hayProcesando, id, dataStatus]);
+
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
-<<<<<<< Updated upstream
-=======
+
   // Documento vigente cuyo botón "Ver versión anterior" se abrió (muestra doc.versionAnterior).
   const [versionAnteriorDe, setVersionAnteriorDe] = useState<Documento | null>(null);
   const [restaurarLoading, setRestaurarLoading] = useState(false);
   const [restaurarExpedienteLoading, setRestaurarExpedienteLoading] = useState(false);
->>>>>>> Stashed changes
+
+
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const handleOpenPreview = useCallback((doc: Documento) => setPreviewDoc(doc), []);
   const handleClosePreview = useCallback(() => setPreviewDoc(null), []);
+  const handleVerVersionAnterior = useCallback((doc: Documento) => {
+    if (doc.versionAnterior) setVersionAnteriorDe(doc);
+  }, []);
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
@@ -374,20 +849,34 @@ function DetalleContent() {
 
   const [detalleAbiertoTipo, setDetalleAbiertoTipo] = useState<DocumentoRequerido | null>(null);
 
-  const [reenviarLoading, setReenviarLoading] = useState(false);
   const [llmLoading, setLlmLoading] = useState(false);
   const [notaLoading, setNotaLoading] = useState(false);
   const [nuevaNota, setNuevaNota] = useState("");
   const [historialOpen, setHistorialOpen] = useState(false);
 
+  // Panel de vista previa del correo de instrucciones (De/Para/Asunto/Cuerpo).
+  // `cargando` = trayendo la vista previa del backend; `enviando` = enviando a Mailgun.
+  const [correoPreview, setCorreoPreview] = useState<{
+    open: boolean;
+    cargando: boolean;
+    enviando: boolean;
+    data: InstruccionesPreview | null;
+  }>({ open: false, cargando: false, enviando: false, data: null });
+
   const checklist = detalle?.checklist ?? [];
   const documentos = detalle?.documentos ?? [];
+  // Los next steps los calcula el backend (con prioridades HIGH/MEDIUM/LOW).
   const nextSteps = detalle?.nextSteps ?? [];
   const historial = detalle?.historial ?? [];
   const notas = detalle?.notas ?? [];
   const exp = detalle?.expediente;
 
   const activeDocumentos = useMemo(() => documentos.filter((d) => d.estado !== "REPLACED"), [documentos]);
+  const tiposDisponiblesParaSubida = useMemo(
+    () => DOCUMENTOS_REQUERIDOS.filter((tipo) => !activeDocumentos.some((doc) => doc.tipo === tipo)),
+    [activeDocumentos],
+  );
+  const puedeSubirDocumento = tiposDisponiblesParaSubida.length > 0;
   const checklistCompleto = useMemo(() => checklist.length === 4 && checklist.every((c) => c.estado === "VALIDATED"), [checklist]);
   const detalleDoc = useMemo(() => {
     if (!detalleAbiertoTipo) return null;
@@ -448,25 +937,62 @@ function DetalleContent() {
 
   async function handleReemplazarDoc(docId: string, archivo: File) {
     if (!detalle) return;
-    setModalLoading(true);
+    // Igual que la subida nueva: cierra la modal de inmediato. El backend deja el
+    // documento entrante en PROCESSING y lo analiza en segundo plano, asi que al
+    // refrescar se ve la tarjeta "en analisis" con su barra; el polling lo actualiza
+    // al terminar.
+    setModal({ type: "none" });
+    try {
+      await expedientesService.reemplazarDocumento(docId, archivo);
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+      showToast("Documento reemplazado, analizando…");
+    } catch {
+      showToast("Error al reemplazar documento");
+    }
+  }
+
+  // Restaura la versión anterior: el doc vigente (docId) pasa a histórico y la
+  // versión anterior vuelve a estar activa (RECEIVED, pendiente de validar).
+  async function handleRestaurarVersion(docId: string) {
+    if (!detalle) return;
+    setRestaurarLoading(true);
     const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
     try {
-      const newDoc = await expedientesService.reemplazarDocumento(docId, archivo);
-      const ev: Evento = { id: "ev-reemp-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} reemplazado. La versión anterior quedó en histórico`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d), newDoc], checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
-      setModal({ type: "none" }); showToast("Documento reemplazado");
-    } catch { showToast("Error al reemplazar documento"); } finally { setModalLoading(false); }
+      const restaurado = await expedientesService.restaurarVersion(docId);
+      const ev: Evento = { id: "ev-rest-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} restaurado a la versión anterior`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({
+        ...detalle,
+        documentos: [
+          ...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d),
+          restaurado,
+        ],
+        checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: restaurado.id } : c),
+        historial: [ev, ...detalle.historial],
+      });
+      setVersionAnteriorDe(null);
+      showToast("Versión anterior restaurada");
+    } catch { showToast("Error al restaurar la versión anterior"); } finally { setRestaurarLoading(false); }
   }
 
   async function handleSubirManual(tipo: DocumentoRequerido, archivo: File) {
     if (!detalle) return;
-    setModalLoading(true);
+    // Cierra la modal de inmediato. El backend guarda el documento en estado
+    // PROCESSING y lo analiza en segundo plano; lo agregamos a la lista para que
+    // aparezca la barra de "procesando". El polling (efecto abajo) lo actualizara
+    // al terminar el analisis, y al recargar la pagina el estado persiste.
+    setModal({ type: "none" });
     try {
       const newDoc = await expedientesService.subirDocumentoManual(id, tipo, archivo);
-      const ev: Evento = { id: "ev-sub-" + Date.now(), tipo: "DOCUMENT_RECEIVED", descripcion: `Documento ${DOCUMENTO_REQUERIDO_LABELS[tipo] ?? tipo} subido manualmente`, timestamp: new Date().toISOString(), tono: "ok" };
-      setDetalle({ ...detalle, documentos: [...detalle.documentos, newDoc], checklist: detalle.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c), historial: [ev, ...detalle.historial] });
-      setModal({ type: "none" }); showToast("Documento subido");
-    } catch { showToast("Error al subir documento"); } finally { setModalLoading(false); }
+      setDetalle((prev) => prev ? {
+        ...prev,
+        documentos: [...prev.documentos, newDoc],
+        checklist: prev.checklist.map((c) => c.tipo === tipo && c.estado === "PENDING" ? { ...c, estado: "RECEIVED" as const, documentoId: newDoc.id } : c),
+      } : prev);
+      showToast("Documento subido, analizando…");
+    } catch {
+      showToast("Error al subir documento");
+    }
   }
 
   async function handleEditarDatos(datos: EditarDatosValues) {
@@ -474,7 +1000,11 @@ function DetalleContent() {
     setModalLoading(true);
     const prev = { ...detalle };
     const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "CASE_UPDATED", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos }, historial: [ev, ...detalle.historial] });
+    // Recalcula resumen (tipo único o MIXED) y total para la actualización optimista.
+    const tipos = Array.from(new Set(datos.operaciones.map((o) => o.tipo)));
+    const tipoOperacion = tipos.length > 1 ? "MIXED" : tipos[0];
+    const montoEstimado = datos.operaciones.reduce((a, o) => a + o.monto, 0);
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos, tipoOperacion, montoEstimado }, historial: [ev, ...detalle.historial] });
     try {
       await expedientesService.actualizarExpediente(id, datos);
       setModal({ type: "none" });
@@ -487,9 +1017,33 @@ function DetalleContent() {
     }
   }
 
-  async function handleReenviar() {
-    setReenviarLoading(true);
-    try { await expedientesService.reenviarInstrucciones(id); showToast("Instrucciones reenviadas"); } catch { showToast("Error al reenviar instrucciones"); } finally { setReenviarLoading(false); }
+  // Abre el panel y trae la vista previa del correo (la arma el backend con los
+  // documentos pendientes y su motivo). Si falla, cierra y avisa.
+  async function abrirCorreoPreview() {
+    setCorreoPreview({ open: true, cargando: true, enviando: false, data: null });
+    try {
+      const data = await expedientesService.getInstrucciones(id);
+      setCorreoPreview((s) => ({ ...s, cargando: false, data }));
+    } catch {
+      setCorreoPreview({ open: false, cargando: false, enviando: false, data: null });
+      showToast("No se pudo cargar la vista previa del correo");
+    }
+  }
+
+  // Envía realmente las instrucciones por correo al cliente del expediente (Mailgun).
+  async function enviarCorreoInstrucciones() {
+    setCorreoPreview((s) => ({ ...s, enviando: true }));
+    try {
+      await expedientesService.reenviarInstrucciones(id);
+      showToast("Instrucciones enviadas por correo");
+      setCorreoPreview({ open: false, cargando: false, enviando: false, data: null });
+      // Refresca el detalle para que aparezca el evento "Instrucciones reenviadas".
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+    } catch {
+      showToast("No se pudieron enviar las instrucciones por correo");
+      setCorreoPreview((s) => ({ ...s, enviando: false }));
+    }
   }
 
   async function handleCancelar(motivo: string) {
@@ -575,6 +1129,7 @@ function DetalleContent() {
 
   const validadosCount = checklist.filter((c) => c.estado === "VALIDATED").length;
   const estadoCfg = estadoGlobalConfig[exp.estado];
+  const esCancelado = exp.estado === "CANCELLED";
 
   // ═══════════════════════════════════════
   // RENDER — MAIN VIEW
@@ -587,12 +1142,26 @@ function DetalleContent() {
       <header className="sticky top-0 z-30" style={{ backgroundColor: "#F5F0EA", borderBottom: "1px solid #E5DED6" }}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 text-sm">
-            <button onClick={() => router.push("/dashboard")} className="transition-colors cursor-pointer" style={{ color: "#B5AFA9" }} onMouseEnter={e => e.currentTarget.style.color = "#302F2D"} onMouseLeave={e => e.currentTarget.style.color = "#B5AFA9"} aria-label="Volver">
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+              style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#D1D5DB";
+                e.currentTarget.style.color = "#302F2D";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#E5E7EB";
+                e.currentTarget.style.color = "#4B5563";
+              }}
+              aria-label="Volver al dashboard"
+            >
               <ArrowLeft size={15} strokeWidth={1.75} />
+              <span>Dashboard</span>
+              <ChevronRight size={11} style={{ color: "#D1D5DB" }} />
             </button>
             <span className="flex items-center justify-center h-6 w-6 rounded-md text-[10px] font-bold text-white" style={{ backgroundColor: "#302F2D" }}>GE</span>
-            <Link href="/dashboard" className="transition-colors hover:underline" style={{ color: "#989396" }}>Dashboard</Link>
-            <ChevronRight size={11} style={{ color: "#D8CFC9" }} />
             <span className="font-mono tabular-nums font-medium" style={{ color: "#302F2D" }}>{exp.codigo}</span>
           </div>
           <div className="flex items-center gap-3">
@@ -620,6 +1189,16 @@ function DetalleContent() {
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-5">
 
+        {/* BANNER CANCELADO */}
+        {esCancelado && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ backgroundColor: "#EAE7E6", border: "1px solid #D6D2D0" }}>
+            <Ban size={14} strokeWidth={1.75} style={{ color: "#5C5957", flexShrink: 0 }} />
+            <p className="text-[13px] font-medium" style={{ color: "#5C5957" }}>
+              Este expediente está cancelado y es de solo lectura — no se permiten modificaciones.
+            </p>
+          </div>
+        )}
+
         {/* 2. BLOQUE A — FICHA */}
         <Card className="p-6" hover={false} delay={0.02}>
           <div className="flex items-start justify-between flex-wrap gap-4">
@@ -638,12 +1217,42 @@ function DetalleContent() {
                 <Dato label="Fecha creación" value={new Date(exp.fechaCreacion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })} />
                 <Dato label="Capturista" value={exp.capturista} />
               </div>
+              {exp.operaciones && exp.operaciones.length > 1 && (
+                <div className="mt-5">
+                  <p className="text-[11px] font-medium uppercase tracking-wider mb-2" style={{ color: "#989396" }}>
+                    Operaciones · {exp.operaciones.length}
+                  </p>
+                  <ul className="flex flex-col gap-1.5">
+                    {exp.operaciones.map((o, i) => {
+                      const Icon = TIPO_OPERACION_ICONO[o.tipo] ?? TIPO_OPERACION_ICONO.MIXED;
+                      return (
+                        <li
+                          key={i}
+                          className="flex items-center justify-between gap-4 rounded-lg px-3 py-2"
+                          style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}
+                        >
+                          <span className="flex items-center gap-2.5 text-sm font-medium" style={{ color: "#302F2D" }}>
+                            <span
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                              style={{ backgroundColor: "#FCEEDB", color: "#A86518" }}
+                            >
+                              <Icon size={15} strokeWidth={1.9} />
+                            </span>
+                            {TIPO_OPERACION_LABELS[o.tipo] ?? o.tipo}
+                          </span>
+                          <span className="tabular-nums text-sm font-medium" style={{ color: "#5C5957" }}>
+                            ${o.monto.toLocaleString("es-MX")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
-<<<<<<< Updated upstream
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
-=======
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
               <ReenviarInstruccionesMenu
                 expediente={exp}
@@ -666,7 +1275,7 @@ function DetalleContent() {
                   {restaurarExpedienteLoading ? "Restaurando…" : "Restaurar expediente"}
                 </button>
               )}
->>>>>>> Stashed changes
+
               {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
@@ -728,14 +1337,14 @@ function DetalleContent() {
               <p className="text-[12px] text-center py-4" style={{ color: "#989396" }}>Sin pendientes</p>
             ) : (
               <div className="space-y-2.5">
-                {nextSteps.map((step, i) => {
+                {nextSteps.map((step) => {
                   const pcfg = prioridadConfig[step.prioridad];
                   return (
                     <motion.div
                       key={step.id}
                       initial={{ opacity: 0, x: 6 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.35, delay: 0.15 + i * 0.06, ease: EASE_OUT }}
+                      transition={{ duration: 0.2, ease: EASE_OUT }}
                       className="flex items-center gap-3 py-2.5 px-3 rounded-lg"
                       style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}
                     >
@@ -771,7 +1380,7 @@ function DetalleContent() {
                 >
                   Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
               </Card>
             </motion.div>
           )}
@@ -788,7 +1397,12 @@ function DetalleContent() {
               <SectionTitle
                 icon={FileText}
                 right={
-                  <button onClick={() => setModal({ type: "subir", modo: "nuevo" })} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
+                  <button
+                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esCancelado}
+                    className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors disabled:cursor-not-allowed"
+                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9" }}
+                  >
                     <Plus size={12} strokeWidth={2} /> Subir documento manual
                   </button>
                 }
@@ -798,14 +1412,23 @@ function DetalleContent() {
               {activeDocumentos.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-[12px] mb-3" style={{ color: "#989396" }}>Aún no hay documentos recibidos</p>
-                  <button onClick={() => setModal({ type: "subir", modo: "nuevo" })} className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer" style={{ backgroundColor: "#FAF6F1", color: "#5C5957", border: "1px solid #F0EBE5" }}>
+                  <button
+                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esCancelado}
+                    className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer disabled:cursor-not-allowed"
+                    style={{
+                      backgroundColor: puedeSubirDocumento && !esCancelado ? "#FAF6F1" : "#F0F0F0",
+                      color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9",
+                      border: "1px solid #F0EBE5",
+                    }}
+                  >
                     <Plus size={12} strokeWidth={2} className="inline mr-1" />Subir documento manual
                   </button>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
                   ))}
                 </div>
               )}
@@ -824,7 +1447,7 @@ function DetalleContent() {
                   <button
                     key={q}
                     onClick={() => handleConsultarLLM(q)}
-                    disabled={llmLoading}
+                    disabled={llmLoading || esCancelado}
                     className="w-full flex items-center justify-between gap-2 text-[13px] px-3.5 py-2.5 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
                     style={{ backgroundColor: "#FAF6F1", border: "1px solid #E5DED6", color: "#5C5957" }}
                     onMouseEnter={e => { if (!llmLoading) { e.currentTarget.style.borderColor = "#F19B42"; e.currentTarget.style.color = "#302F2D"; } }}
@@ -843,19 +1466,20 @@ function DetalleContent() {
               <div className="mb-4">
                 <textarea
                   rows={2}
-                  placeholder="Escribe una nota interna…"
+                  placeholder={esCancelado ? "No se pueden agregar notas a un expediente cancelado" : "Escribe una nota interna…"}
                   value={nuevaNota}
-                  onChange={(e) => setNuevaNota(e.target.value)}
-                  className="w-full text-[13px] px-3 py-2 rounded-md resize-none bg-white transition-colors"
-                  style={{ border: "1px solid #E5DED6", color: "#302F2D", outline: "none" }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = "#F19B42"}
+                  onChange={(e) => !esCancelado && setNuevaNota(e.target.value)}
+                  disabled={esCancelado}
+                  className="w-full text-[13px] px-3 py-2 rounded-md resize-none bg-white transition-colors disabled:cursor-not-allowed"
+                  style={{ border: "1px solid #E5DED6", color: esCancelado ? "#B5AFA9" : "#302F2D", outline: "none", backgroundColor: esCancelado ? "#F9F8F7" : "#FFFFFF" }}
+                  onFocus={(e) => { if (!esCancelado) e.currentTarget.style.borderColor = "#F19B42"; }}
                   onBlur={(e) => e.currentTarget.style.borderColor = "#E5DED6"}
                 />
                 <button
-                  onClick={() => { if (nuevaNota.trim()) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
-                  disabled={!nuevaNota.trim() || notaLoading}
+                  onClick={() => { if (nuevaNota.trim() && !esCancelado) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
+                  disabled={!nuevaNota.trim() || notaLoading || esCancelado}
                   className="mt-2 flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer transition-colors disabled:cursor-not-allowed"
-                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading ? "#FFFFFF" : "#B5AFA9" }}
+                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading && !esCancelado ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading && !esCancelado ? "#FFFFFF" : "#B5AFA9" }}
                 >
                   <Plus size={12} strokeWidth={2} /> Agregar nota
                 </button>
@@ -892,7 +1516,17 @@ function DetalleContent() {
         {/* 6. BLOQUE H — VALIDACIÓN FINAL */}
         <Card className="p-6" hover={false} delay={0.24}>
           <SectionTitle icon={Check}>Validación final</SectionTitle>
-          {exp.estado === "COMPLETE" ? (
+          {esCancelado ? (
+            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "#EAE7E6" }}>
+              <div className="flex items-center justify-center h-9 w-9 rounded-full shrink-0" style={{ backgroundColor: "#989396" }}>
+                <Ban size={16} strokeWidth={2} color="white" />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold" style={{ color: "#5C5957" }}>Expediente cancelado</p>
+                <p className="text-[11px]" style={{ color: "#7A7470" }}>No es posible realizar validaciones sobre este expediente</p>
+              </div>
+            </div>
+          ) : exp.estado === "COMPLETE" ? (
             <div className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap" style={{ backgroundColor: "#ECF0E8" }}>
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-9 w-9 rounded-full" style={{ backgroundColor: "#536648" }}>
@@ -1034,9 +1668,87 @@ function DetalleContent() {
           </div>
         </Modal>
       )}
+      {versionAnteriorDe?.versionAnterior && (() => {
+        const prev = versionAnteriorDe.versionAnterior;
+        if (!prev) return null;
+        const dcfg = docEstadoConfig[prev.estado] ?? docEstadoConfig.PENDING;
+        return (
+          <Modal
+            open={!!versionAnteriorDe}
+            onClose={() => { if (!restaurarLoading) setVersionAnteriorDe(null); }}
+            title={`Versión anterior · ${DOCUMENTO_REQUERIDO_LABELS[prev.tipo] ?? prev.tipo}`}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-lg p-3" style={{ backgroundColor: "#FCEEDB", border: "1px solid #F0D9B8" }}>
+                <CornerUpLeft size={15} strokeWidth={2} style={{ color: "#A86518" }} className="mt-0.5 shrink-0" />
+                <p className="text-[12px]" style={{ color: "#8A6730" }}>
+                  Esta es la versión que se reemplazó. Puedes quedarte con ella (volverá a quedar activa, pendiente de validar) o conservar la versión más nueva.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]" style={{ color: "#5C5957" }}>
+                <Badge cfg={dcfg} small />
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span className="font-mono text-[11px]">{prev.filename}</span>
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span>{CANAL_LABELS[prev.canal] ?? prev.canal}</span>
+                <span style={{ color: "#D8CFC9" }}>·</span>
+                <span className="tabular-nums">{new Date(prev.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+
+              {prev.motivoRechazo && (
+                <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "#9C4B2E" }}>
+                  <AlertTriangle size={12} />
+                  Motivo de rechazo previo: {MOTIVO_RECHAZO_LABELS[prev.motivoRechazo.categoria] ?? prev.motivoRechazo.categoria}
+                  {prev.motivoRechazo.texto ? ` — ${prev.motivoRechazo.texto}` : ""}
+                </div>
+              )}
+
+              {prev.archivoUrl ? (
+                prev.mimeType.startsWith("image/") ? (
+                  <img src={prev.archivoUrl} alt={prev.filename} className="w-full rounded-xl object-contain" style={{ maxHeight: "60vh" }} />
+                ) : prev.mimeType === "application/pdf" ? (
+                  <iframe src={prev.archivoUrl} title={prev.filename} className="w-full h-[60vh] rounded-xl border border-[#E5DED6]" />
+                ) : (
+                  <div className="w-full h-[40vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                    <span className="text-sm" style={{ color: "#989396" }}>Tipo de archivo no compatible para previsualizar.</span>
+                  </div>
+                )
+              ) : (
+                <div className="w-full h-[40vh] flex items-center justify-center rounded-xl" style={{ backgroundColor: "#FAF6F1" }}>
+                  <span className="text-sm" style={{ color: "#989396" }}>No hay archivo disponible para esta versión.</span>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setVersionAnteriorDe(null)}
+                  disabled={restaurarLoading}
+                  className="rounded-md bg-white px-4 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
+                  style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
+                >
+                  Volver a la más nueva
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRestaurarVersion(versionAnteriorDe.id)}
+                  disabled={restaurarLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium text-white transition-colors disabled:cursor-not-allowed"
+                  style={{ backgroundColor: restaurarLoading ? "#E7C9A0" : "#F19B42" }}
+                >
+                  <CornerUpLeft size={13} strokeWidth={2} />
+                  {restaurarLoading ? "Restaurando…" : "Quedarme con esta versión"}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
       {modal.type === "editar" && (
         <EditarDatosModal
-          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, montoEstimado: exp.montoEstimado, tipoOperacion: exp.tipoOperacion }}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, operaciones: exp.operaciones }}
           onConfirm={handleEditarDatos}
           onClose={() => setModal({ type: "none" })}
           loading={modalLoading}
@@ -1059,6 +1771,7 @@ function DetalleContent() {
           modo={modal.modo}
           expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }}
           documentoActual={modal.documentoId ? documentos.find((d) => d.id === modal.documentoId) ?? null : null}
+          tiposDisponibles={modal.modo === "nuevo" ? tiposDisponiblesParaSubida : undefined}
           onConfirm={(tipo, archivo) => { if (modal.modo === "reemplazo" && modal.documentoId) { handleReemplazarDoc(modal.documentoId, archivo); } else { handleSubirManual(tipo, archivo); } }}
           onClose={() => setModal({ type: "none" })}
           loading={modalLoading}
@@ -1075,6 +1788,15 @@ function DetalleContent() {
       {modal.type === "llm-respuesta" && (
         <RespuestaLLMModal consulta={modal.consulta} expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre }} onClose={() => setModal({ type: "none" })} />
       )}
+
+      <PreviewCorreoModal
+        open={correoPreview.open}
+        onClose={() => { if (!correoPreview.enviando) setCorreoPreview({ open: false, cargando: false, enviando: false, data: null }); }}
+        data={correoPreview.data}
+        cargando={correoPreview.cargando}
+        enviando={correoPreview.enviando}
+        onEnviar={enviarCorreoInstrucciones}
+      />
 
       {/* TOAST */}
       <AnimatePresence>

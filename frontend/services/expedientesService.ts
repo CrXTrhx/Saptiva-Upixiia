@@ -1,6 +1,7 @@
 import { apiClient, apiUpload } from "@/lib/apiClient";
 import type {
-  ClienteAgrupado,
+  ClienteResumen,
+  RfcSugerencia,
   ConteoEstados,
   CreateExpedienteRequest,
   CreateExpedienteResponse,
@@ -14,7 +15,17 @@ import type {
   MotivoRechazo,
   DocumentoRequerido,
   TipoOperacion,
+  Operacion,
 } from "@/lib/types";
+
+// Vista previa del correo de instrucciones que arma el backend (GET /instrucciones).
+export type InstruccionesPreview = {
+  codigo: string;
+  destinatario: string; // correo del cliente registrado en el expediente
+  remitente: string; // remitente configurado (MAIL_FROM)
+  asunto: string;
+  texto: string; // cuerpo: instrucciones + documentos pendientes y su motivo
+};
 
 // --- Priority sort (business rule: urgents first, then validation, then missing docs, then rest) ---
 // El backend ya ordena la lista por prioridad; estos helpers se reutilizan para la
@@ -101,9 +112,18 @@ export const expedientesService = {
   },
 
   // Vista previa visual del código; el real lo asigna el backend al crear.
-  previewNextCodigo(): string {
+  // Formato: EXP-AAAA-{BLN|VNT|MIX}{NNNNN}-{XXXX}. El consecutivo (NNNNN) y los 4
+  // caracteres aleatorios (XXXX) los asigna el backend, así que aquí van como
+  // marcadores. El prefijo se deriva de los tipos seleccionados: MIX si hay más de
+  // un tipo distinto, si no BLN/VNT.
+  previewNextCodigo(tipos: Array<TipoOperacion | "">): string {
     const year = new Date().getFullYear();
-    return `EXP-${year}-XXXXX`;
+    const distintos = Array.from(new Set(tipos.filter(Boolean)));
+    let op = "···";
+    if (distintos.length > 1) op = "MIX";
+    else if (distintos[0] === "ARMORING") op = "BLN";
+    else if (distintos[0] === "VEHICLE_SALE") op = "VNT";
+    return `EXP-${year}-${op}#####-XXXX`;
   },
 
   async createExpediente(
@@ -122,8 +142,7 @@ export const expedientesService = {
       clienteTelefono: string;
       clienteCorreo: string;
       clienteRfc?: string;
-      montoEstimado: number;
-      tipoOperacion: TipoOperacion;
+      operaciones: Operacion[];
     },
   ): Promise<Expediente> {
     return apiClient<Expediente>(`/expedientes/${id}`, {
@@ -139,54 +158,45 @@ export const expedientesService = {
     return ordenarPorPrioridad(data);
   },
 
-  // Vista "Por cliente": agrupa los expedientes (ya filtrados por el backend) por
-  // cliente, ordena cada grupo por prioridad y los clientes por su urgencia máxima.
-  async getClientesAgrupados(
+  // Vista "Por prioridad" paginada en el servidor. Cada respuesta incluye los
+  // elementos de la página y el total filtrado para el botón "Ver más".
+  async getExpedientesPagina(
     query: ExpedienteQuery = {},
-  ): Promise<ClienteAgrupado[]> {
-    const filtered = await apiClient<Expediente[]>(
-      `/expedientes${buildQueryString(query)}`,
+    limit = 20,
+    offset = 0,
+  ): Promise<{ items: Expediente[]; total: number }> {
+    const qs = buildQueryString(query);
+    const separator = qs ? "&" : "?";
+    return apiClient<{ items: Expediente[]; total: number }>(
+      `/expedientes/pagina${qs}${separator}limit=${limit}&offset=${offset}`,
     );
+  },
 
-    // Agrupar por identidad de cliente (el teléfono es estable).
-    const grupos = new Map<string, Expediente[]>();
-    for (const exp of filtered) {
-      const key = exp.clienteTelefono || exp.clienteCorreo || exp.id;
-      const arr = grupos.get(key);
-      if (arr) arr.push(exp);
-      else grupos.set(key, [exp]);
-    }
+  // --- Carga por pasos (optimización) -------------------------------------
+  // Paso 1: lista COMPACTA de clientes (uno por RFC) ya agregada por el backend.
+  // No descarga todos los expedientes: el navegador solo recibe N filas de cliente.
+  // Acepta los mismos filtros que la lista de expedientes (search/estado/fecha/doc).
+  async getClientes(query: ExpedienteQuery = {}): Promise<ClienteResumen[]> {
+    return apiClient<ClienteResumen[]>(`/clientes${buildQueryString(query)}`);
+  },
 
-    const clientes: ClienteAgrupado[] = [];
-    for (const [key, exps] of grupos) {
-      const expedientes = ordenarPorPrioridad(exps);
-      const head = expedientes[0];
+  // Paso 2: expedientes de UN cliente (al hacer clic). `clave` es el RFC o, si es
+  // un cliente legacy sin RFC, el id del expediente.
+  async getExpedientesDeCliente(clave: string): Promise<Expediente[]> {
+    const data = await apiClient<Expediente[]>(
+      `/clientes/${encodeURIComponent(clave)}/expedientes`,
+    );
+    return ordenarPorPrioridad(data);
+  },
 
-      const conteoPorEstado: Partial<Record<Estado, number>> = {};
-      for (const e of exps) {
-        conteoPorEstado[e.estado] = (conteoPorEstado[e.estado] ?? 0) + 1;
-      }
-
-      clientes.push({
-        id: key,
-        nombre: head.clienteNombre,
-        telefono: head.clienteTelefono,
-        correo: head.clienteCorreo,
-        rfc: head.clienteRfc,
-        montoTotal: exps.reduce((sum, e) => sum + (e.montoEstimado ?? 0), 0),
-        totalExpedientes: exps.length,
-        conteoPorEstado,
-        tieneUrgente: exps.some((e) => calcularPrioridad(e) === 0),
-        expedientes,
-      });
-    }
-
-    return clientes.sort((a, b) => {
-      const pa = Math.min(...a.expedientes.map(calcularPrioridad));
-      const pb = Math.min(...b.expedientes.map(calcularPrioridad));
-      if (pa !== pb) return pa - pb;
-      return b.montoTotal - a.montoTotal;
-    });
+  // Autocompletado de RFC en el form de nueva venta: clientes cuyo RFC empieza
+  // con el prefijo escrito.
+  async getSugerenciasRfc(prefix: string): Promise<RfcSugerencia[]> {
+    const p = prefix.trim();
+    if (p.length < 2) return [];
+    return apiClient<RfcSugerencia[]>(
+      `/clientes/sugerencias?rfc=${encodeURIComponent(p)}`,
+    );
   },
 
   async getConteos(): Promise<ConteoEstados> {
@@ -196,6 +206,17 @@ export const expedientesService = {
   async getHuerfanosPendientes(): Promise<number> {
     const data = await apiClient<{ count: number }>("/huerfanos/count");
     return data.count;
+  },
+
+  // Resumen del dashboard: conteos + huérfanos pendientes en UNA sola request
+  // (antes eran 2 llamadas separadas en la carga inicial).
+  async getDashboardResumen(): Promise<{
+    conteos: ConteoEstados;
+    huerfanosPendientes: number;
+  }> {
+    return apiClient<{ conteos: ConteoEstados; huerfanosPendientes: number }>(
+      "/dashboard/resumen",
+    );
   },
 
   // --- P5 Detail ---
@@ -227,6 +248,14 @@ export const expedientesService = {
     const form = new FormData();
     form.append("file", archivo);
     return apiUpload<Documento>(`/documentos/${docId}/reemplazar`, form, "POST");
+  },
+
+  // Restaura la versión anterior de un documento reemplazado: el documento
+  // vigente vuelve al histórico y el anterior queda activo (devuelve el activo).
+  async restaurarVersion(docId: string): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/restaurar-version`, {
+      method: "POST",
+    });
   },
 
   async subirDocumentoManual(
@@ -263,12 +292,10 @@ export const expedientesService = {
     });
   },
 
-<<<<<<< Updated upstream
   async reenviarInstrucciones(id: string): Promise<void> {
     await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
       method: "POST",
     });
-=======
   async restaurarExpediente(id: string): Promise<Expediente> {
     return apiClient<Expediente>(`/expedientes/${id}/restaurar`, {
       method: "PATCH",
@@ -300,7 +327,7 @@ export const expedientesService = {
       `/expedientes/${id}/reenviar-instrucciones`,
       { method: "POST" },
     );
->>>>>>> Stashed changes
+
   },
 
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {

@@ -29,7 +29,7 @@ export default function LoginPage() {
         <div className="mb-10 text-center">
           <div className="mx-auto mb-4 h-1.5 w-16 rounded-full bg-[var(--color-accent)] shadow-[0_0_30px_rgba(241,155,66,0.22)]" />
           <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--color-accent)] mb-4">
-            Centur
+            DigitalFoldr
           </p>
           <h1 className="text-4xl font-semibold tracking-tight text-[var(--color-text)]">
             Bienvenido de vuelta

@@ -13,6 +13,7 @@ Backend configurable (STORAGE_BACKEND):
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,8 +23,11 @@ from app.core.config import settings
 _LOCAL_DIR = Path(__file__).resolve().parents[2] / "storage_local"
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _PRESIGN_EXPIRES = 3600  # 1 hora
+_PRESIGN_CACHE_TTL = 55 * 60  # reutilizar la URL durante 55 min (5 min antes de expirar)
 
 _client_singleton = None
+# key R2 → (url_firmada, timestamp_expira) — evita regenerar en cada poll
+_presign_cache: dict[str, tuple[str, float]] = {}
 
 
 @dataclass
@@ -57,14 +61,59 @@ def _safe_name(name: str) -> str:
     return name[:120]
 
 
-def _make_key(file_name: str) -> str:
-    return f"{uuid.uuid4().hex}_{file_name}"
+def _safe_segment(value: str) -> str:
+    """Sanitiza un segmento de ruta (carpeta) para usarlo como prefijo de la key."""
+    value = (value or "").strip().replace(" ", "_")
+    return _SAFE.sub("", value)
 
 
-def store(content: bytes, file_name: str, mime_type: str | None) -> StoredFile:
+def _make_key(file_name: str, prefix: str | None = None, doc_type: str | None = None) -> str:
+    """Construye la key del objeto en R2 (que ademas define la 'carpeta').
+
+    En R2/S3 no hay carpetas reales: el '/' en la key es lo que el panel muestra
+    como carpeta. Formato limpio `TIPO_nombre_<id6><ext>`:
+      * expediente:  EXP-2026-00001/CURP_RULV061217H_4e49e8.pdf
+      * huerfano:    huerfanos/recibo_luz_4e49e8.pdf  (sin tipo aun)
+      * sin prefijo: documento_4e49e8.pdf
+
+    El `id6` (6 hex) garantiza unicidad para que un reemplazo del mismo tipo NO
+    sobreescriba a la version anterior (la retencion depende de eso). El tipo no
+    se duplica si el nombre ya empieza con el (ej. archivo "CURP_RULV...").
+    """
+    folder = _safe_segment(prefix) if prefix else ""
+
+    # Separa nombre y extension para colocar el id6 antes de la extension.
+    stem, dot, ext = file_name.rpartition(".")
+    if not dot:  # archivo sin extension
+        stem, ext = file_name, ""
+    else:
+        ext = "." + ext
+
+    tag = _safe_segment(doc_type) if doc_type else ""
+    if tag and not stem.upper().startswith(tag.upper()):
+        stem = f"{tag}_{stem}"
+
+    name = f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
+    return f"{folder}/{name}" if folder else name
+
+
+def store(
+    content: bytes,
+    file_name: str,
+    mime_type: str | None,
+    *,
+    prefix: str | None = None,
+    doc_type: str | None = None,
+) -> StoredFile:
+    """Almacena un archivo y devuelve su StoredFile.
+
+    `prefix` define la carpeta (ej. el codigo del expediente o "huerfanos") y
+    `doc_type` se antepone al nombre para identificar el tipo a simple vista. Si
+    no se pasan, la key queda plana como antes (100% retrocompatible).
+    """
     file_name = _safe_name(file_name)
     mime_type = mime_type or "application/octet-stream"
-    key = _make_key(file_name)
+    key = _make_key(file_name, prefix=prefix, doc_type=doc_type)
 
     if settings.storage_backend == "r2":
         _r2_client().put_object(
@@ -72,11 +121,75 @@ def store(content: bytes, file_name: str, mime_type: str | None) -> StoredFile:
         )
         url = key  # se firma al leer
     else:
-        _LOCAL_DIR.mkdir(parents=True, exist_ok=True)
-        (_LOCAL_DIR / key).write_bytes(content)
+        dest = _LOCAL_DIR / key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
         url = f"{settings.api_public_url.rstrip('/')}/files/{key}"
 
     return StoredFile(url=url, key=key, file_name=file_name, mime_type=mime_type)
+
+
+def read(stored_value: str) -> bytes:
+    """Lee de vuelta los bytes de un archivo ya almacenado (simetrico a store()).
+
+    Acepta lo que se guarda en document.file_url:
+      * local: la URL completa (.../files/<key>) -> se lee del disco.
+      * r2: la KEY del objeto -> se baja con get_object.
+    """
+    if not stored_value:
+        raise ValueError("stored_value vacio")
+
+    if stored_value.startswith("http://") or stored_value.startswith("https://"):
+        key = stored_value.rsplit("/files/", 1)[-1]
+        return (_LOCAL_DIR / key).read_bytes()
+
+    # Es una key de R2.
+    obj = _r2_client().get_object(Bucket=settings.r2_bucket, Key=stored_value)
+    return obj["Body"].read()
+
+
+def delete(stored_value: str | None) -> None:
+    """Borra el archivo almacenado (simetrico a store()).
+
+    Acepta lo que se guarda en file_url:
+      * local: la URL completa (.../files/<key>) -> borra del disco.
+      * r2: la KEY del objeto -> delete_object.
+    Idempotente: si el archivo ya no existe, no falla.
+    """
+    if not stored_value:
+        return
+
+    if stored_value.startswith("http://") or stored_value.startswith("https://"):
+        key = stored_value.rsplit("/files/", 1)[-1]
+        try:
+            (_LOCAL_DIR / key).unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    # Es una key de R2. delete_object no falla si la key no existe.
+    _r2_client().delete_object(Bucket=settings.r2_bucket, Key=stored_value)
+
+
+def purge_all() -> int:
+    """Borra TODOS los objetos del bucket R2 configurado. Devuelve cuantos borro.
+
+    Solo para mantenimiento/demo (dejar el bucket vacio). No aplica al backend
+    local. Pagina el listado y borra en lotes de hasta 1000 (limite de S3).
+    """
+    if settings.storage_backend != "r2":
+        return 0
+    client = _r2_client()
+    bucket = settings.r2_bucket
+    deleted = 0
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket):
+        objs = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+        if objs:
+            client.delete_objects(Bucket=bucket, Delete={"Objects": objs, "Quiet": True})
+            deleted += len(objs)
+    _presign_cache.clear()
+    return deleted
 
 
 def resolve_url(stored_value: str | None) -> str | None:
@@ -89,13 +202,18 @@ def resolve_url(stored_value: str | None) -> str | None:
         return stored_value
     if stored_value.startswith("http://") or stored_value.startswith("https://"):
         return stored_value
-    # Es una key de R2 -> URL firmada
+    # Es una key de R2 -> URL firmada (cacheada para no regenerar en cada poll)
+    cached = _presign_cache.get(stored_value)
+    if cached and time.time() < cached[1]:
+        return cached[0]
     try:
-        return _r2_client().generate_presigned_url(
+        url = _r2_client().generate_presigned_url(
             "get_object",
             Params={"Bucket": settings.r2_bucket, "Key": stored_value},
             ExpiresIn=_PRESIGN_EXPIRES,
         )
+        _presign_cache[stored_value] = (url, time.time() + _PRESIGN_CACHE_TTL)
+        return url
     except Exception:
         return stored_value
 

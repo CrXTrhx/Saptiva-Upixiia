@@ -50,7 +50,35 @@ def listar_expedientes(
     cases = service.list_expedientes(
         db, search=search, estado=estado, desde=desde, hasta=hasta, doc_faltante=doc_faltante
     )
-    return [serializers.serialize_expediente(db, c) for c in cases]
+    return serializers.serialize_expedientes_bulk(db, cases)
+
+
+@router.get("/expedientes/pagina")
+def listar_expedientes_pagina(
+    search: str | None = Query(default=None),
+    estado: str | None = Query(default=None),
+    desde: str | None = Query(default=None),
+    hasta: str | None = Query(default=None),
+    doc_faltante: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    cases, total = service.list_expedientes_pagina(
+        db,
+        search=search,
+        estado=estado,
+        desde=desde,
+        hasta=hasta,
+        doc_faltante=doc_faltante,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "items": serializers.serialize_expedientes_bulk(db, cases),
+        "total": total,
+    }
 
 
 @router.get("/expedientes/{case_id}")
@@ -92,11 +120,15 @@ def instrucciones(
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
+    remitente = settings.mail_from or f"noreply@{settings.mailgun_domain}" if settings.mailgun_domain else "noreply@upiixia.com"
     return {
         "codigo": case.code,
+        "destinatario": case.client_email or "",
+        "remitente": settings.mail_from or settings.system_email,
+        "asunto": case.code,
         "whatsapp": settings.system_whatsapp,
         "correo": settings.system_email,
-        "texto": service.instrucciones_texto(case),
+        "texto": service.instrucciones_texto(db, case),
     }
 
 
@@ -134,9 +166,6 @@ def cancelar(
     return serializers.serialize_expediente(db, case)
 
 
-<<<<<<< Updated upstream
-@router.post("/expedientes/{case_id}/reenviar-instrucciones", status_code=204)
-=======
 @router.patch("/expedientes/{case_id}/restaurar")
 def restaurar(
     case_id: str,
@@ -149,14 +178,14 @@ def restaurar(
 
 
 @router.post("/expedientes/{case_id}/reenviar-instrucciones")
->>>>>>> Stashed changes
+
 def reenviar_instrucciones(
     case_id: str,
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
-    service.reenviar_instrucciones(db, case, user)
+    return service.reenviar_instrucciones(db, case, user)
 
 
 @router.post("/expedientes/{case_id}/notas", status_code=201)

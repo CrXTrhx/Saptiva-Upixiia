@@ -35,10 +35,10 @@ export function Input({
           type={resolvedType}
           aria-invalid={!!error}
           aria-describedby={error ? `${inputId}-error` : undefined}
-          className={`w-full rounded-lg border bg-[var(--color-surface)] px-3.5 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted)] transition-colors duration-150 focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] ${
+          className={`w-full rounded-lg border bg-[var(--color-surface)] px-3.5 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted)] transition-[color,border-color,box-shadow] duration-150 ease-out focus:outline-none ${
             error
-              ? "border-red-400 focus:outline-red-400"
-              : "border-[var(--color-border)] hover:border-[var(--color-muted)]"
+              ? "border-red-400 focus:border-red-400 focus:shadow-[0_0_0_3px_rgba(214,69,69,0.15)]"
+              : "border-[var(--color-border)] hover:border-[var(--color-muted)] focus:border-[var(--color-accent)] focus:shadow-[0_0_0_3px_var(--color-accent-ring)]"
           } ${togglePassword ? "pr-10" : ""} ${className}`}
           {...props}
         />

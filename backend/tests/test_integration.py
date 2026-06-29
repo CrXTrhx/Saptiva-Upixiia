@@ -6,6 +6,7 @@ rechazo, catalogos).
 """
 from __future__ import annotations
 
+import time
 import uuid
 
 import pytest
@@ -28,14 +29,67 @@ def auth(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
-def _crear(client, auth, nombre="Test Persona", monto=700000, tipo="blindaje") -> dict:
+def _crear(
+    client,
+    auth,
+    nombre="Test Persona",
+    monto=700000,
+    tipo="blindaje",
+    rfc: str | None = None,
+) -> dict:
+    # El RFC es la identidad canónica del cliente y es obligatorio desde la relación
+    # cliente-expediente por RFC. Generamos uno válido y único para aislar cada prueba.
+    cliente_rfc = rfc or f"TEST900101{uuid.uuid4().hex[:3].upper()}"
     r = client.post("/api/expedientes", headers=auth, json={
         "clienteNombre": nombre, "clienteTelefono": "5550000000",
         "clienteCorreo": f"{uuid.uuid4().hex[:8]}@test.com",
-        "montoEstimado": monto, "tipoOperacion": tipo,
+        "clienteRfc": cliente_rfc,
+        "operaciones": [{"tipo": tipo, "monto": monto}],
     })
     assert r.status_code == 201, r.text
     return r.json()
+
+
+def test_clientes_por_rfc_y_paginacion(client, auth):
+    rfc = f"TEST900101{uuid.uuid4().hex[:3].upper()}"
+    primero = _crear(client, auth, nombre="Cliente RFC", monto=100000, rfc=rfc)
+    segundo = _crear(client, auth, nombre="Cliente RFC", monto=200000, rfc=rfc)
+
+    clientes = client.get(
+        "/api/clientes", headers=auth, params={"search": rfc}
+    )
+    assert clientes.status_code == 200, clientes.text
+    assert len(clientes.json()) == 1
+    assert clientes.json()[0]["id"] == rfc
+    assert clientes.json()[0]["totalExpedientes"] == 2
+
+    expedientes_cliente = client.get(
+        f"/api/clientes/{rfc}/expedientes", headers=auth
+    )
+    assert expedientes_cliente.status_code == 200, expedientes_cliente.text
+    assert {e["id"] for e in expedientes_cliente.json()} == {
+        primero["id"],
+        segundo["id"],
+    }
+
+    pagina = client.get(
+        "/api/expedientes/pagina",
+        headers=auth,
+        params={"search": rfc, "limit": 1, "offset": 0},
+    )
+    assert pagina.status_code == 200, pagina.text
+    assert pagina.json()["total"] == 2
+    assert len(pagina.json()["items"]) == 1
+
+    siguiente = client.get(
+        "/api/expedientes/pagina",
+        headers=auth,
+        params={"search": rfc, "limit": 1, "offset": 1},
+    )
+    assert siguiente.status_code == 200, siguiente.text
+    assert siguiente.json()["total"] == 2
+    assert len(siguiente.json()["items"]) == 1
+    assert pagina.json()["items"][0]["id"] != siguiente.json()["items"][0]["id"]
 
 
 def test_login_requiere_credenciales_validas(client):
@@ -51,12 +105,46 @@ def test_crear_y_estado_inicial(client, auth):
     exp = _crear(client, auth)
     assert exp["estado"] == "CAPTURING"
     assert exp["codigo"].startswith("EXP-")
+    # Una venta de un tipo expone una sola operacion.
+    assert len(exp["operaciones"]) == 1
+    assert exp["operaciones"][0]["tipo"] == "ARMORING"
+
+
+def test_crear_un_tipo_conserva_prefijo(client, auth):
+    exp = _crear(client, auth, tipo="vehicle_sale", monto=500000)
+    assert exp["tipoOperacion"] == "VEHICLE_SALE"
+    assert "-VNT" in exp["codigo"]
+
+
+def test_crear_mixto_genera_codigo_mix(client, auth):
+    rfc = f"TEST900101{uuid.uuid4().hex[:3].upper()}"
+    r = client.post("/api/expedientes", headers=auth, json={
+        "clienteNombre": "Cliente Mixto", "clienteTelefono": "5550000000",
+        "clienteCorreo": f"{uuid.uuid4().hex[:8]}@test.com",
+        "clienteRfc": rfc,
+        "operaciones": [
+            {"tipo": "vehicle_sale", "monto": 300000},
+            {"tipo": "blindaje", "monto": 150000},
+        ],
+    })
+    assert r.status_code == 201, r.text
+    exp = r.json()
+    assert exp["tipoOperacion"] == "MIXED"
+    assert "-MIX" in exp["codigo"]
+    assert exp["montoEstimado"] == 450000  # suma de las lineas
+    assert len(exp["operaciones"]) == 2
+
+    det = client.get(f"/api/expedientes/{exp['id']}/detalle", headers=auth).json()
+    # El checklist son los 4 documentos de identidad (no se duplica al combinar tipos).
+    assert len(det["checklist"]) == 4
+    assert len(det["expediente"]["operaciones"]) == 2
 
 
 def test_editar_expediente(client, auth):
     exp = _crear(client, auth, nombre="Antes Edicion")
     r = client.patch(f"/api/expedientes/{exp['id']}", headers=auth, json={
-        "clienteNombre": "Despues Edicion", "montoEstimado": 999999,
+        "clienteNombre": "Despues Edicion",
+        "operaciones": [{"tipo": "blindaje", "monto": 999999}],
     })
     assert r.status_code == 200, r.text
     assert r.json()["clienteNombre"] == "Despues Edicion"
@@ -65,13 +153,31 @@ def test_editar_expediente(client, auth):
     assert any(e["tipo"] == "CASE_UPDATED" for e in det["historial"])
 
 
+def _esperar_estado_doc(client, auth, exp_id, doc_id, timeout=15.0):
+    """La subida manual deja el doc en PROCESSING y lo analiza en segundo plano.
+    Reconsulta el detalle hasta que el documento sale de PROCESSING."""
+    deadline = time.time() + timeout
+    doc = None
+    while time.time() < deadline:
+        det = client.get(f"/api/expedientes/{exp_id}/detalle", headers=auth).json()
+        doc = next((d for d in det["documentos"] if d["id"] == doc_id), None)
+        if doc and doc["estado"] != "PROCESSING":
+            return doc
+        time.sleep(0.5)
+    return doc
+
+
 def test_rechazo_automatico_y_revertir(client, auth):
     exp = _crear(client, auth)
     files = {"file": ("comprobante_ilegible.jpg", b"x", "image/jpeg")}
     r = client.post(f"/api/expedientes/{exp['id']}/documentos", headers=auth,
                     data={"tipo": "PROOF_OF_ADDRESS"}, files=files)
-    assert r.status_code == 201 and r.json()["estado"] == "REJECTED", r.text
+    assert r.status_code == 201, r.text
     doc_id = r.json()["id"]
+    # El analisis corre en segundo plano: el doc queda en PROCESSING y termina
+    # rechazado por ilegible. Releemos el estado ya resuelto.
+    doc = _esperar_estado_doc(client, auth, exp["id"], doc_id)
+    assert doc and doc["estado"] == "REJECTED", doc
     # revertir el rechazo automatico
     r = client.patch(f"/api/documentos/{doc_id}/revertir-rechazo", headers=auth)
     assert r.status_code == 200 and r.json()["estado"] == "RECEIVED", r.text
@@ -120,6 +226,53 @@ def test_huerfano_y_asignacion(client, auth):
     r = client.post(f"/api/huerfanos/{orphan_id}/asignar", headers=auth,
                     json={"expedienteId": exp["id"], "tipo": "OFFICIAL_ID"})
     assert r.status_code == 201, r.text
+
+
+def _huerfano_whatsapp(client, file_name: str) -> str:
+    """Crea un huerfano por WhatsApp (sin codigo) y devuelve su id."""
+    r = client.post("/api/webhooks/whatsapp", json={
+        "sender": "+525550000000", "text": "sin codigo",
+        "fileName": file_name, "mimeType": "image/jpeg",
+    })
+    assert r.json()["status"] == "orphan", r.text
+    return r.json()["orphanId"]
+
+
+def test_documento_entrante_reemplaza_card_del_mismo_tipo(client, auth):
+    """Al asignar un 2o documento del mismo tipo, el entrante se vuelve la UNICA
+    card activa y el anterior (aunque este validado) pasa al historico como
+    versionAnterior. Cubre el caso del huerfano que antes dejaba 2 cards (p. ej.
+    2 INEs) cuando el entrante se auto-rechazaba."""
+    exp = _crear(client, auth, nombre="Reemplazo Card")
+    eid = exp["id"]
+    suf = uuid.uuid4().hex[:6]
+
+    # 1a INE: huerfano -> asignar (RECEIVED) -> validar (VALIDATED)
+    o1 = _huerfano_whatsapp(client, f"ine_buena_{suf}.jpg")
+    r = client.post(f"/api/huerfanos/{o1}/asignar", headers=auth,
+                    json={"expedienteId": eid, "tipo": "OFFICIAL_ID"})
+    assert r.status_code == 201 and r.json()["estado"] == "RECEIVED", r.text
+    doc1 = r.json()["id"]
+    rv = client.patch(f"/api/documentos/{doc1}/validar", headers=auth)
+    assert rv.status_code == 200 and rv.json()["estado"] == "VALIDATED", rv.text
+
+    # 2a INE: llega ilegible (se auto-rechaza) y se asigna al MISMO expediente
+    o2 = _huerfano_whatsapp(client, f"ine_ilegible_{suf}.jpg")
+    r = client.post(f"/api/huerfanos/{o2}/asignar", headers=auth,
+                    json={"expedienteId": eid, "tipo": "OFFICIAL_ID"})
+    assert r.status_code == 201 and r.json()["estado"] == "REJECTED", r.text
+    doc2 = r.json()["id"]
+
+    # Una sola card activa de OFFICIAL_ID; la previa validada quedo en el rastro.
+    det = client.get(f"/api/expedientes/{eid}/detalle", headers=auth).json()
+    ine_cards = [d for d in det["documentos"] if d["tipo"] == "OFFICIAL_ID"]
+    assert len(ine_cards) == 1, [d["id"] for d in ine_cards]
+    card = ine_cards[0]
+    assert card["id"] == doc2, "el documento entrante debe ser la card activa"
+    assert card["versionAnterior"] and card["versionAnterior"]["id"] == doc1, \
+        "la version validada anterior debe quedar como versionAnterior"
+    item = next(c for c in det["checklist"] if c["tipo"] == "OFFICIAL_ID")
+    assert item["documentoId"] == doc2, "el checklist debe apuntar al documento activo"
 
 
 def test_cancelar_con_motivo(client, auth):

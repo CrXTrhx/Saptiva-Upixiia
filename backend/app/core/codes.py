@@ -26,6 +26,7 @@ OPEN_STATUSES = {
 
 
 class DocStatus:
+    PROCESSING = "PROCESSING"  # subido; Document AI lo esta analizando en segundo plano
     RECEIVED = "RECEIVED"
     VALIDATED = "VALIDATED"
     REJECTED = "REJECTED"
@@ -82,6 +83,7 @@ class OrphanStatus:
 class OperationType:
     ARMORING = "ARMORING"
     VEHICLE_SALE = "VEHICLE_SALE"
+    MIXED = "MIXED"  # resumen de una venta con tipos mezclados (codigo MIX)
 
 
 class EventType:
@@ -96,6 +98,9 @@ class EventType:
     DOCUMENT_REPLACED = "DOCUMENT_REPLACED"
     REMINDER_SENT = "REMINDER_SENT"
     INSTRUCTIONS_RESENT = "INSTRUCTIONS_RESENT"
+    # Correo enviado al cliente al validar / rechazar uno de sus documentos
+    CLIENT_NOTIFIED_VALIDATED = "CLIENT_NOTIFIED_VALIDATED"
+    CLIENT_NOTIFIED_REJECTED = "CLIENT_NOTIFIED_REJECTED"
     NOTE_ADDED = "NOTE_ADDED"
     CASE_COMPLETED = "CASE_COMPLETED"
     CASE_CANCELLED = "CASE_CANCELLED"
@@ -130,10 +135,20 @@ EVENT_TONE = {
     EventType.DOCUMENT_REPLACED: "neutral",
     EventType.REMINDER_SENT: "neutral",
     EventType.INSTRUCTIONS_RESENT: "neutral",
+    EventType.CLIENT_NOTIFIED_VALIDATED: "ok",
+    EventType.CLIENT_NOTIFIED_REJECTED: "warn",
     EventType.NOTE_ADDED: "neutral",
     EventType.CASE_COMPLETED: "ok",
     EventType.CASE_CANCELLED: "warn",
     EventType.CASE_ARCHIVED: "neutral",
     EventType.LLM_QUERY: "accent",
     EventType.ORPHAN_ASSIGNED: "ok",
+}
+
+# Motivos de rechazo en texto legible (para los correos al cliente)
+REJECTION_LABEL = {
+    RejectionReason.ILLEGIBLE: "el documento es ilegible",
+    RejectionReason.TYPE_MISMATCH: "no corresponde al tipo solicitado",
+    RejectionReason.EXPIRED: "el documento está vencido",
+    RejectionReason.OTHER: "otro motivo",
 }

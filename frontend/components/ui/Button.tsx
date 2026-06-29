@@ -15,14 +15,16 @@ export function Button({
   className = "",
   ...props
 }: ButtonProps) {
+  // Microinteracción: pressed con scale(0.98) en todas las variantes; elevación
+  // sutil (shadow) en primary/secondary al hover. Ver DESIGN.md › Motion.
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-50 cursor-pointer";
+    "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition duration-150 ease-out active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-50 cursor-pointer";
 
   const variants = {
     primary:
-      "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] active:bg-[var(--color-accent-hover)]",
+      "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] hover:shadow-sm active:bg-[var(--color-accent-hover)]",
     secondary:
-      "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-bg)]",
+      "border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-bg)] hover:shadow-sm",
     ghost:
       "text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)]",
   };

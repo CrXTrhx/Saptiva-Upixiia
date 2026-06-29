@@ -1,14 +1,17 @@
-"""Webhooks de canales entrantes (Sinch WhatsApp / correo). Integracion real: stub.
+"""Webhooks de canales entrantes (Sinch WhatsApp / correo).
 
-No requieren JWT; en produccion validan la firma/secreto del proveedor. Aceptan un
-payload simplificado para la demo. El adjunto puede venir en base64 (fileBase64) o,
-si no, se usa un contenido de marcador.
+WhatsApp y el webhook de correo JSON (`/webhooks/email`) usan un payload simplificado
+para la demo. El correo REAL llega por Mailgun a `/webhooks/email/mailgun` como
+multipart/form-data con los adjuntos del cliente (ver `mailgun_inbound`).
+
+No requieren JWT; validan la firma/secreto del proveedor.
 """
 from __future__ import annotations
 
 import base64
+import json
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from app.core.codes import Channel
@@ -17,6 +20,7 @@ from app.core.deps import get_db
 from app.core.errors import UnauthorizedError
 from app.integrations import email as email_client
 from app.integrations import sinch
+from app.modules.canales import ingest
 from app.modules.canales.ingest import handle_inbound
 from app.schemas.base import CamelModel
 
@@ -79,6 +83,74 @@ def email_webhook(
         db, channel=Channel.EMAIL, sender=payload.sender,
         message_text=payload.text, content=content, file_name=name, mime_type=mime,
     )
-    if payload.sender:
+    # Solo acusamos recibo si el documento se asigno a un expediente valido. Si fue a
+    # huerfanos (sin codigo o codigo inexistente), no se responde nada al remitente.
+    if payload.sender and result["status"] == "assigned":
         email_client.send_email(payload.sender, "Documento recibido", result["reply"])
     return result
+
+
+@router.post("/webhooks/email/mailgun")
+async def mailgun_inbound(request: Request, background_tasks: BackgroundTasks):
+    """Webhook de correo ENTRANTE de Mailgun (Routes -> forward a esta URL).
+
+    Mailgun envia multipart/form-data con los campos del correo ya parseado
+    (sender, subject, body-plain, ...) y los adjuntos como `attachment-1`,
+    `attachment-2`, etc. El cliente debe poner su numero de expediente en el
+    ASUNTO (o el cuerpo). Respondemos 200 de inmediato y procesamos los adjuntos
+    en segundo plano para no exceder el timeout de Mailgun (evita reintentos /
+    duplicados); el analisis (Document AI) corre dentro de ese procesamiento.
+    """
+    form = await request.form()
+
+    timestamp = form.get("timestamp")
+    token = form.get("token")
+    signature = form.get("signature")
+    if not email_client.verify_mailgun_signature(timestamp, token, signature):
+        raise UnauthorizedError("Firma de Mailgun invalida")
+
+    sender = form.get("sender") or form.get("from")
+    subject = form.get("subject") or ""
+    body = form.get("body-plain") or form.get("stripped-text") or ""
+    # `recipient` es la direccion a la que escribio el cliente. Con sub-addressing
+    # (`documentos+EXP-...@`, al RESPONDER el correo de instrucciones) lleva el codigo
+    # del expediente, asi que el cliente no necesita escribirlo.
+    recipient = form.get("recipient") or form.get("to") or ""
+
+    # Mailgun nombra los adjuntos attachment-1, attachment-2, ... Hay que leer los
+    # bytes AHORA (antes de responder); la BackgroundTask corre tras cerrar el request.
+    attachments: list[tuple[bytes, str, str | None]] = []
+    # Accion "Forward to URL": adjuntos como archivos multipart (attachment-1..N).
+    for key, value in form.multi_items():
+        if key.startswith("attachment-") and hasattr(value, "filename"):
+            content = await value.read()
+            if content:
+                attachments.append(
+                    (content, value.filename or "documento", value.content_type)
+                )
+
+    # Accion "Store and notify": adjuntos como URLs en el campo JSON `attachments`;
+    # se descargan con la API key. Solo si no llegaron como archivos (evita duplicar).
+    if not attachments:
+        raw = form.get("attachments")
+        if raw:
+            try:
+                meta = json.loads(raw)
+            except (TypeError, ValueError):
+                meta = []
+            for item in meta:
+                url = item.get("url")
+                if not url:
+                    continue
+                content = email_client.download_attachment(url)
+                if content:
+                    attachments.append(
+                        (content, item.get("name") or "documento", item.get("content-type"))
+                    )
+
+    background_tasks.add_task(
+        ingest.process_email_attachments,
+        sender=sender, subject=subject, body=body, attachments=attachments,
+        recipient=recipient,
+    )
+    return {"status": "accepted", "attachments": len(attachments)}

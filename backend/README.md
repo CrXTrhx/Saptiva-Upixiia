@@ -1,5 +1,7 @@
 # Saptiva AML — Backend (FastAPI)
 
+> Parte del monorepo [digitalfoldr](../README.md). Ver [`DEPLOY_RENDER.md`](./DEPLOY_RENDER.md) para la guía de despliegue.
+
 API REST que consume el frontend. Python + FastAPI + SQLAlchemy 2.0 (síncrono,
 psycopg3) sobre PostgreSQL en **Neon**. Solo expone la API; las integraciones
 externas (Document API de Saptiva, Sinch WhatsApp, correo entrante, LLM Anthropic)
