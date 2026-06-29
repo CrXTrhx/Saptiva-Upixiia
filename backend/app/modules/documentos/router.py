@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.core.codes import Channel
 from app.core.deps import get_current_user, get_db
 from app.core.errors import ValidationError
-from app.models import AppUser
-from app.modules.documentos import service
+from app.models import AppUser, CaseFile
+from app.modules.documentos import notificaciones, service
 from app.modules.documentos.schemas import RechazarRequest
 from app.modules.expedientes import serializers
 from app.modules.expedientes.service import get_case_or_404
@@ -61,11 +61,23 @@ def subir_documento(
 @router.patch("/documentos/{doc_id}/validar")
 def validar(
     doc_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.validar_documento(db, doc, user)
+    # Avisar al cliente por correo en segundo plano (no bloquea la respuesta del boton).
+    case = db.get(CaseFile, doc.case_file_id)
+    background_tasks.add_task(
+        notificaciones.notificar_validacion,
+        case.id,
+        case.client_email,
+        case.code,
+        doc.declared_type_code or doc.detected_type_code,
+        actor=user.email,
+        actor_user_id=user.id,
+    )
     return serializers.serialize_documento(db, doc)
 
 
@@ -73,11 +85,25 @@ def validar(
 def rechazar(
     doc_id: str,
     body: RechazarRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.rechazar_documento(db, doc, body.categoria, body.texto, user)
+    # Avisar al cliente por correo en segundo plano (no bloquea la respuesta del boton).
+    case = db.get(CaseFile, doc.case_file_id)
+    background_tasks.add_task(
+        notificaciones.notificar_rechazo,
+        case.id,
+        case.client_email,
+        case.code,
+        doc.declared_type_code or doc.detected_type_code,
+        body.categoria,
+        body.texto,
+        actor=user.email,
+        actor_user_id=user.id,
+    )
     return serializers.serialize_documento(db, doc)
 
 
