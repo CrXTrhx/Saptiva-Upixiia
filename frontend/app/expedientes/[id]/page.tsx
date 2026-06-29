@@ -353,6 +353,13 @@ function DetalleContent() {
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
+<<<<<<< Updated upstream
+=======
+  // Documento vigente cuyo botón "Ver versión anterior" se abrió (muestra doc.versionAnterior).
+  const [versionAnteriorDe, setVersionAnteriorDe] = useState<Documento | null>(null);
+  const [restaurarLoading, setRestaurarLoading] = useState(false);
+  const [restaurarExpedienteLoading, setRestaurarExpedienteLoading] = useState(false);
+>>>>>>> Stashed changes
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -508,6 +515,23 @@ function DetalleContent() {
     try { await expedientesService.archivar(id); showToast("Expediente archivado"); } catch { setDetalle(prev); showToast("Error al archivar expediente"); }
   }
 
+  async function handleRestaurarExpediente() {
+    if (!detalle) return;
+    const prev = { ...detalle };
+    setRestaurarExpedienteLoading(true);
+    try {
+      await expedientesService.restaurarExpediente(id);
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+      showToast("Expediente restaurado");
+    } catch {
+      setDetalle(prev);
+      showToast("Error al restaurar expediente");
+    } finally {
+      setRestaurarExpedienteLoading(false);
+    }
+  }
+
   async function handleAgregarNota(texto: string) {
     if (!detalle) return;
     const optimista: Nota = { id: "temp-" + Date.now(), texto, autor: "Administrador", timestamp: new Date().toISOString() };
@@ -616,8 +640,33 @@ function DetalleContent() {
               </div>
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
+<<<<<<< Updated upstream
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })}>Editar datos</ActionBtn>
               <ActionBtn icon={Send} onClick={handleReenviar} disabled={reenviarLoading}>{reenviarLoading ? "Enviando..." : "Reenviar instrucciones"}</ActionBtn>
+=======
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
+              <ReenviarInstruccionesMenu
+                expediente={exp}
+                disabled={esCancelado}
+                onToast={showToast}
+                onAbrirCorreo={() => abrirCorreoPreview()}
+                onCopiarInstrucciones={async () => (await expedientesService.getInstrucciones(id)).texto}
+                // WhatsApp se omite a propósito: por ahora queda deshabilitado ("No disponible por ahora").
+              />
+              {esCancelado && (
+                <button
+                  onClick={handleRestaurarExpediente}
+                  disabled={restaurarExpedienteLoading}
+                  className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                  style={{ backgroundColor: "#ECF0E8", color: "#536648", border: "1px solid #C7D8B3" }}
+                  onMouseEnter={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#D8E6C7"; }}
+                  onMouseLeave={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#ECF0E8"; }}
+                >
+                  <RefreshCw size={13} strokeWidth={1.75} />
+                  {restaurarExpedienteLoading ? "Restaurando…" : "Restaurar expediente"}
+                </button>
+              )}
+>>>>>>> Stashed changes
               {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}

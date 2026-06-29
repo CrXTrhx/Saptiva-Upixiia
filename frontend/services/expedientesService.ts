@@ -263,10 +263,44 @@ export const expedientesService = {
     });
   },
 
+<<<<<<< Updated upstream
   async reenviarInstrucciones(id: string): Promise<void> {
     await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
       method: "POST",
     });
+=======
+  async restaurarExpediente(id: string): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}/restaurar`, {
+      method: "PATCH",
+    });
+  },
+
+  async getInstrucciones(id: string): Promise<{
+    codigo: string;
+    whatsapp: string;
+    correo: string;
+    texto: string;
+    remitente: string;
+    destinatario: string;
+    asunto: string;
+  }> {
+    return apiClient<{
+      codigo: string;
+      whatsapp: string;
+      correo: string;
+      texto: string;
+      remitente: string;
+      destinatario: string;
+      asunto: string;
+    }>(`/expedientes/${id}/instrucciones`);
+  },
+
+  async reenviarInstrucciones(id: string): Promise<{ enviado: boolean; correo: string }> {
+    return apiClient<{ enviado: boolean; correo: string }>(
+      `/expedientes/${id}/reenviar-instrucciones`,
+      { method: "POST" },
+    );
+>>>>>>> Stashed changes
   },
 
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {

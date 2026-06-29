@@ -640,10 +640,10 @@ function OrphanDocumentRow({ doc, onPreview, onAsignar, onCrearExpediente, onDes
           <button
             type="button"
             onClick={() => onDescartar(doc)}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] transition-colors"
-            style={{ color: "#9CA3AF" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#B91C1C"; e.currentTarget.style.backgroundColor = "#FEE2E2"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "#9CA3AF"; e.currentTarget.style.backgroundColor = "transparent"; }}
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-medium text-white transition-colors"
+            style={{ backgroundColor: "#DC2626" }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#B91C1C")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#DC2626")}
           >
             <Trash2 size={12} />
             Descartar

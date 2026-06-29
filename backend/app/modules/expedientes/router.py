@@ -134,7 +134,22 @@ def cancelar(
     return serializers.serialize_expediente(db, case)
 
 
+<<<<<<< Updated upstream
 @router.post("/expedientes/{case_id}/reenviar-instrucciones", status_code=204)
+=======
+@router.patch("/expedientes/{case_id}/restaurar")
+def restaurar(
+    case_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    case = service.get_case_or_404(db, case_id)
+    service.restaurar(db, case, user)
+    return serializers.serialize_expediente(db, case)
+
+
+@router.post("/expedientes/{case_id}/reenviar-instrucciones")
+>>>>>>> Stashed changes
 def reenviar_instrucciones(
     case_id: str,
     db: Session = Depends(get_db),

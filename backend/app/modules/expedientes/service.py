@@ -239,6 +239,48 @@ def cancelar(db: Session, case: CaseFile, motivo: str, user: AppUser) -> CaseFil
     return case
 
 
+def restaurar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
+    if case.status_code != CaseStatus.CANCELLED:
+        raise ConflictError("Solo se puede restaurar un expediente cancelado")
+
+    # Recupera el estado que tenia el expediente justo antes de cancelarse.
+    # Al cancelar, transition() registra STATUS_CHANGED con metadata {"from","to"}.
+    eventos = db.execute(
+        select(CaseEvent)
+        .where(
+            CaseEvent.case_file_id == case.id,
+            CaseEvent.event_type_code == EventType.STATUS_CHANGED,
+        )
+        .order_by(CaseEvent.event_at.desc())
+    ).scalars()
+
+    estado_previo = None
+    for ev in eventos:
+        meta = ev.event_metadata or {}
+        if meta.get("to") == CaseStatus.CANCELLED:
+            estado_previo = meta.get("from")
+            break
+
+    # Solo restauramos a un estado "abierto" valido; si no hay rastro, RECEIVING.
+    if estado_previo not in OPEN_STATUSES:
+        estado_previo = CaseStatus.RECEIVING
+
+    case.cancellation_reason = None
+    db.flush()
+    # transition() ya registra el evento STATUS_CHANGED con el from/to correcto.
+    transition(
+        db,
+        case,
+        estado_previo,
+        actor=user.email,
+        actor_user_id=user.id,
+        descripcion="Expediente restaurado",
+        force=True,
+    )
+    ns.recompute(db, case)
+    return case
+
+
 def archivar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
     transition(
         db, case, CaseStatus.ARCHIVED, actor=user.email, actor_user_id=user.id,
