@@ -19,6 +19,7 @@ import EditarDatosModal, { type EditarDatosValues } from "@/components/expedient
 import { Modal } from "@/components/ui/Modal";
 import { expedientesService, type InstruccionesPreview } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
+import { TIPO_OPERACION_ICONO } from "@/lib/operacion-iconos";
 import {
   DOCUMENTOS_REQUERIDOS,
   DOCUMENTO_REQUERIDO_LABELS,
@@ -824,9 +825,13 @@ function DetalleContent() {
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Documento | null>(null);
+
   // Documento vigente cuyo botón "Ver versión anterior" se abrió (muestra doc.versionAnterior).
   const [versionAnteriorDe, setVersionAnteriorDe] = useState<Documento | null>(null);
   const [restaurarLoading, setRestaurarLoading] = useState(false);
+  const [restaurarExpedienteLoading, setRestaurarExpedienteLoading] = useState(false);
+
+
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -995,7 +1000,11 @@ function DetalleContent() {
     setModalLoading(true);
     const prev = { ...detalle };
     const ev: Evento = { id: "ev-edit-" + Date.now(), tipo: "CASE_UPDATED", descripcion: "Datos del cliente actualizados", timestamp: new Date().toISOString(), tono: "neutral" };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos }, historial: [ev, ...detalle.historial] });
+    // Recalcula resumen (tipo único o MIXED) y total para la actualización optimista.
+    const tipos = Array.from(new Set(datos.operaciones.map((o) => o.tipo)));
+    const tipoOperacion = tipos.length > 1 ? "MIXED" : tipos[0];
+    const montoEstimado = datos.operaciones.reduce((a, o) => a + o.monto, 0);
+    setDetalle({ ...detalle, expediente: { ...detalle.expediente, ...datos, tipoOperacion, montoEstimado }, historial: [ev, ...detalle.historial] });
     try {
       await expedientesService.actualizarExpediente(id, datos);
       setModal({ type: "none" });
@@ -1058,6 +1067,23 @@ function DetalleContent() {
     const prev = { ...detalle };
     setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "ARCHIVED" } });
     try { await expedientesService.archivar(id); showToast("Expediente archivado"); } catch { setDetalle(prev); showToast("Error al archivar expediente"); }
+  }
+
+  async function handleRestaurarExpediente() {
+    if (!detalle) return;
+    const prev = { ...detalle };
+    setRestaurarExpedienteLoading(true);
+    try {
+      await expedientesService.restaurarExpediente(id);
+      const fresh = await expedientesService.getExpedienteDetalle(id);
+      if (fresh) setDetalle(fresh);
+      showToast("Expediente restaurado");
+    } catch {
+      setDetalle(prev);
+      showToast("Error al restaurar expediente");
+    } finally {
+      setRestaurarExpedienteLoading(false);
+    }
   }
 
   async function handleAgregarNota(texto: string) {
@@ -1191,6 +1217,38 @@ function DetalleContent() {
                 <Dato label="Fecha creación" value={new Date(exp.fechaCreacion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })} />
                 <Dato label="Capturista" value={exp.capturista} />
               </div>
+              {exp.operaciones && exp.operaciones.length > 1 && (
+                <div className="mt-5">
+                  <p className="text-[11px] font-medium uppercase tracking-wider mb-2" style={{ color: "#989396" }}>
+                    Operaciones · {exp.operaciones.length}
+                  </p>
+                  <ul className="flex flex-col gap-1.5">
+                    {exp.operaciones.map((o, i) => {
+                      const Icon = TIPO_OPERACION_ICONO[o.tipo] ?? TIPO_OPERACION_ICONO.MIXED;
+                      return (
+                        <li
+                          key={i}
+                          className="flex items-center justify-between gap-4 rounded-lg px-3 py-2"
+                          style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}
+                        >
+                          <span className="flex items-center gap-2.5 text-sm font-medium" style={{ color: "#302F2D" }}>
+                            <span
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                              style={{ backgroundColor: "#FCEEDB", color: "#A86518" }}
+                            >
+                              <Icon size={15} strokeWidth={1.9} />
+                            </span>
+                            {TIPO_OPERACION_LABELS[o.tipo] ?? o.tipo}
+                          </span>
+                          <span className="tabular-nums text-sm font-medium" style={{ color: "#5C5957" }}>
+                            ${o.monto.toLocaleString("es-MX")}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
             <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
@@ -1202,6 +1260,20 @@ function DetalleContent() {
                 onCopiarInstrucciones={async () => (await expedientesService.getInstrucciones(id)).texto}
                 // WhatsApp se omite a propósito: por ahora queda deshabilitado ("No disponible por ahora").
               />
+              {esCancelado && (
+                <button
+                  onClick={handleRestaurarExpediente}
+                  disabled={restaurarExpedienteLoading}
+                  className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                  style={{ backgroundColor: "#ECF0E8", color: "#536648", border: "1px solid #C7D8B3" }}
+                  onMouseEnter={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#D8E6C7"; }}
+                  onMouseLeave={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#ECF0E8"; }}
+                >
+                  <RefreshCw size={13} strokeWidth={1.75} />
+                  {restaurarExpedienteLoading ? "Restaurando…" : "Restaurar expediente"}
+                </button>
+              )}
+
               {exp.estado !== "CANCELLED" && exp.estado !== "ARCHIVED" && (
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
@@ -1674,7 +1746,7 @@ function DetalleContent() {
       })()}
       {modal.type === "editar" && (
         <EditarDatosModal
-          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, montoEstimado: exp.montoEstimado, tipoOperacion: exp.tipoOperacion }}
+          expediente={{ codigo: exp.codigo, clienteNombre: exp.clienteNombre, clienteTelefono: exp.clienteTelefono, clienteCorreo: exp.clienteCorreo, clienteRfc: exp.clienteRfc, operaciones: exp.operaciones }}
           onConfirm={handleEditarDatos}
           onClose={() => setModal({ type: "none" })}
           loading={modalLoading}

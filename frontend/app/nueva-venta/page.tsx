@@ -12,6 +12,11 @@ import {
   Check,
   X,
   UserCheck,
+  Plus,
+  Trash2,
+  Shield,
+  Car,
+  type LucideIcon,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -22,10 +27,14 @@ import {
 } from "@/lib/nueva-venta-handoff";
 import {
   validateForm,
-  validateField,
+  validateClienteField,
   INITIAL_VALUES,
+  NUEVA_OPERACION,
   type NuevaVentaFormValues,
+  type OperacionFormValue,
   type FieldErrors,
+  type OperacionErrors,
+  type ClienteField,
 } from "@/lib/schemas/nueva-venta";
 import {
   requiereIdentificacion,
@@ -141,6 +150,19 @@ function Roadmap() {
   );
 }
 
+// --- Helpers de operaciones ---
+
+function tiposSeleccionados(operaciones: OperacionFormValue[]): string[] {
+  return Array.from(new Set(operaciones.map((o) => o.tipo).filter(Boolean)));
+}
+
+function montoTotal(operaciones: OperacionFormValue[]): number {
+  return operaciones.reduce((acc, o) => {
+    const n = parseFloat(o.monto.replace(/,/g, ""));
+    return acc + (isNaN(n) ? 0 : n);
+  }, 0);
+}
+
 // --- Form status ---
 
 type FormStatus = "idle" | "submitting" | "success" | "error";
@@ -177,15 +199,20 @@ function NuevaVentaContent() {
           clienteTelefono: prefill.telefono || "",
           clienteCorreo: prefill.correo || "",
           clienteRfc: prefill.rfc || "",
-          montoEstimado: prefill.montoEstimado || "",
-          tipoOperacion: prefill.tipoOperacion || "",
+          operaciones: [
+            {
+              tipo: prefill.tipoOperacion || "",
+              monto: prefill.montoEstimado || "",
+            },
+          ],
         }
       : INITIAL_VALUES,
   );
-  const [touched, setTouched] = useState<
-    Partial<Record<keyof NuevaVentaFormValues, true>>
-  >({});
+  const [touched, setTouched] = useState<Partial<Record<ClienteField, true>>>({});
   const [errors, setErrors] = useState<FieldErrors>({});
+  // Errores y "touched" de las líneas de operación (paralelos a values.operaciones).
+  const [opErrors, setOpErrors] = useState<OperacionErrors[]>([]);
+  const [opTouched, setOpTouched] = useState<boolean[]>([]);
   const [status, setStatus] = useState<FormStatus>("idle");
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -211,12 +238,17 @@ function NuevaVentaContent() {
   const [sugerencias, setSugerencias] = useState<RfcSugerencia[]>([]);
   const [rfcFocus, setRfcFocus] = useState(false);
 
+  const tipos = useMemo(
+    () => tiposSeleccionados(values.operaciones),
+    [values.operaciones],
+  );
+  const total = useMemo(
+    () => montoTotal(values.operaciones),
+    [values.operaciones],
+  );
   const codigoPreview = useMemo(
-    () =>
-      expedientesService.previewNextCodigo(
-        values.tipoOperacion as TipoOperacion | "",
-      ),
-    [values.tipoOperacion],
+    () => expedientesService.previewNextCodigo(tipos as Array<TipoOperacion | "">),
+    [tipos],
   );
 
   const validation = useMemo(
@@ -287,16 +319,14 @@ function NuevaVentaContent() {
     };
   }, [values.clienteRfc, clienteBloqueado, asociarCliente]);
 
-  // On-change: revalidate only if already touched
+  // On-change de campos del cliente: revalida solo si ya fue tocado.
   const handleChange = useCallback(
-    (field: keyof NuevaVentaFormValues, raw: string) => {
+    (field: ClienteField, raw: string) => {
       const v = field === "clienteRfc" ? raw.toUpperCase() : raw;
-      const cleaned =
-        field === "montoEstimado" ? v.replace(/[^\d.]/g, "") : v;
-      const next = { ...values, [field]: cleaned };
-      setValues((prev) => ({ ...prev, [field]: cleaned }));
+      const next = { ...values, [field]: v };
+      setValues((prev) => ({ ...prev, [field]: v }));
       if (touched[field]) {
-        const err = validateField(field, cleaned, next, VALIDATE_OPTS);
+        const err = validateClienteField(field, v, next, VALIDATE_OPTS);
         setErrors((prev) => {
           const copy = { ...prev };
           if (err) copy[field] = err;
@@ -308,11 +338,11 @@ function NuevaVentaContent() {
     [values, touched],
   );
 
-  // On-blur: mark touched + validate
+  // On-blur de campos del cliente: marca touched + valida.
   const handleBlur = useCallback(
-    (field: keyof NuevaVentaFormValues) => {
+    (field: ClienteField) => {
       setTouched((prev) => ({ ...prev, [field]: true }));
-      const err = validateField(field, values[field], values, VALIDATE_OPTS);
+      const err = validateClienteField(field, values[field], values, VALIDATE_OPTS);
       setErrors((prev) => {
         const copy = { ...prev };
         if (err) copy[field] = err;
@@ -323,44 +353,121 @@ function NuevaVentaContent() {
     [values],
   );
 
-  // Threshold warning
-  const montoNum = parseFloat(values.montoEstimado.replace(/,/g, "")) || 0;
-  const tipoSel = values.tipoOperacion as TipoOperacion | "";
-  const showThresholdNote =
-    tipoSel !== "" &&
-    montoNum > 0 &&
-    !requiereIdentificacion(montoNum, tipoSel as TipoOperacion);
+  // --- Operaciones: revalida toda la lista y refresca los errores de líneas tocadas.
+  const revalidarOperaciones = useCallback(
+    (nextValues: NuevaVentaFormValues, tocadas: boolean[]) => {
+      const result = validateForm(nextValues, VALIDATE_OPTS);
+      const lineErrs = result.success ? [] : result.lineErrors;
+      setOpErrors(
+        nextValues.operaciones.map((_, i) =>
+          tocadas[i] ? (lineErrs[i] ?? {}) : {},
+        ),
+      );
+    },
+    [],
+  );
+
+  const updateOperacion = useCallback(
+    (index: number, field: keyof OperacionFormValue, raw: string) => {
+      const v = field === "monto" ? raw.replace(/[^\d.]/g, "") : raw;
+      setValues((prev) => {
+        const operaciones = prev.operaciones.map((o, i) =>
+          i === index ? { ...o, [field]: v } : o,
+        );
+        const next = { ...prev, operaciones };
+        setOpTouched((prevT) => {
+          revalidarOperaciones(next, prevT);
+          return prevT;
+        });
+        return next;
+      });
+    },
+    [revalidarOperaciones],
+  );
+
+  const blurOperacion = useCallback(
+    (index: number) => {
+      setOpTouched((prev) => {
+        const tocadas = [...prev];
+        tocadas[index] = true;
+        revalidarOperaciones(values, tocadas);
+        return tocadas;
+      });
+    },
+    [values, revalidarOperaciones],
+  );
+
+  const addOperacion = useCallback(() => {
+    setValues((prev) => ({
+      ...prev,
+      operaciones: [...prev.operaciones, { ...NUEVA_OPERACION }],
+    }));
+    setOpErrors((prev) => [...prev, {}]);
+    setOpTouched((prev) => [...prev, false]);
+  }, []);
+
+  const removeOperacion = useCallback(
+    (index: number) => {
+      setValues((prev) => {
+        if (prev.operaciones.length <= 1) return prev;
+        return {
+          ...prev,
+          operaciones: prev.operaciones.filter((_, i) => i !== index),
+        };
+      });
+      setOpErrors((prev) => prev.filter((_, i) => i !== index));
+      setOpTouched((prev) => prev.filter((_, i) => i !== index));
+    },
+    [],
+  );
 
   // Footer text
   const footerText = useMemo(() => {
     if (status === "submitting") return "";
-    const hasErrors = Object.keys(errors).length > 0;
-    if (hasErrors && Object.values(touched).some(Boolean))
+    const hasClientErrors = Object.keys(errors).length > 0;
+    const hasOpErrors = opErrors.some((e) => Object.keys(e).length > 0);
+    if (
+      (hasClientErrors || hasOpErrors) &&
+      (Object.values(touched).some(Boolean) || opTouched.some(Boolean))
+    )
       return "Revisa los campos marcados";
     if (isValid) return "Listo para crear";
     return "Completa los campos obligatorios";
-  }, [status, errors, isValid, touched]);
+  }, [status, errors, opErrors, isValid, touched, opTouched]);
 
   async function handleSubmit(ev: FormEvent) {
     ev.preventDefault();
     setServerError(null);
 
-    const allTouched: typeof touched = {};
-    for (const k of Object.keys(values) as (keyof NuevaVentaFormValues)[]) {
-      allTouched[k] = true;
-    }
+    const allTouched: Partial<Record<ClienteField, true>> = {
+      clienteNombre: true,
+      clienteTelefono: true,
+      clienteCorreo: true,
+      clienteRfc: true,
+    };
     setTouched(allTouched);
+    const todasOpTouched = values.operaciones.map(() => true);
+    setOpTouched(todasOpTouched);
 
     const result = validateForm(values, VALIDATE_OPTS);
     if (!result.success) {
-      setErrors(result.errors);
+      setErrors(result.clientErrors);
+      setOpErrors(
+        values.operaciones.map((_, i) => result.lineErrors[i] ?? {}),
+      );
       return;
     }
 
     setStatus("submitting");
 
     try {
-      const exp = await expedientesService.createExpediente(result.data);
+      const exp = await expedientesService.createExpediente({
+        clienteNombre: result.data.clienteNombre,
+        clienteTelefono: result.data.clienteTelefono,
+        clienteCorreo: result.data.clienteCorreo,
+        clienteRfc: result.data.clienteRfc,
+        operaciones: result.data.operaciones,
+      });
       setStatus("success");
       router.push(`/expedientes/${exp.id}/instrucciones`);
     } catch (err) {
@@ -373,7 +480,7 @@ function NuevaVentaContent() {
     }
   }
 
-  function fieldErr(f: keyof NuevaVentaFormValues) {
+  function fieldErr(f: ClienteField) {
     return touched[f] ? errors[f] : undefined;
   }
 
@@ -425,7 +532,7 @@ function NuevaVentaContent() {
           </h1>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
             {modoCliente
-              ? "Los datos del cliente están precargados. Solo captura los datos de la venta (tipo y monto)."
+              ? "Los datos del cliente están precargados. Solo captura las operaciones de la venta."
               : "Captura los datos iniciales para crear un expediente"}
           </p>
         </div>
@@ -684,83 +791,16 @@ function NuevaVentaContent() {
                   </Field>
                 </div>
 
-                {/* Datos de la venta: Monto + Tipo (siempre editables) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <Field
-                    label="Monto estimado de la operación"
-                    required
-                    error={fieldErr("montoEstimado")}
-                    htmlFor="montoEstimado"
-                  >
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-[var(--color-tertiary)]">
-                        $
-                      </span>
-                      <input
-                        id="montoEstimado"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={values.montoEstimado}
-                        onChange={(e) =>
-                          handleChange("montoEstimado", e.target.value)
-                        }
-                        onBlur={() => handleBlur("montoEstimado")}
-                        aria-invalid={!!fieldErr("montoEstimado")}
-                        aria-describedby={
-                          fieldErr("montoEstimado")
-                            ? "montoEstimado-error"
-                            : undefined
-                        }
-                        className={`${inputClass(!!fieldErr("montoEstimado"))} pl-7 tabular-nums`}
-                      />
-                    </div>
-                  </Field>
-                  <Field
-                    label="Tipo de operación"
-                    required
-                    error={fieldErr("tipoOperacion")}
-                    htmlFor="tipoOperacion"
-                  >
-                    <select
-                      id="tipoOperacion"
-                      value={values.tipoOperacion}
-                      onChange={(e) =>
-                        handleChange("tipoOperacion", e.target.value)
-                      }
-                      onBlur={() => handleBlur("tipoOperacion")}
-                      aria-invalid={!!fieldErr("tipoOperacion")}
-                      aria-describedby={
-                        fieldErr("tipoOperacion")
-                          ? "tipoOperacion-error"
-                          : undefined
-                      }
-                      className={`${inputClass(!!fieldErr("tipoOperacion"))} cursor-pointer ${
-                        values.tipoOperacion === ""
-                          ? "text-[var(--color-tertiary)]"
-                          : ""
-                      }`}
-                    >
-                      <option value="" disabled>
-                        Seleccionar...
-                      </option>
-                      <option value="ARMORING">Blindaje</option>
-                      <option value="VEHICLE_SALE">Venta de vehículo</option>
-                    </select>
-                  </Field>
-                </div>
-
-                {/* Threshold note (informative, not blocking) */}
-                {showThresholdNote && (
-                  <p className="text-xs text-[var(--color-muted)] bg-[var(--color-bg-hover)] rounded-lg px-4 py-2.5">
-                    El monto está por debajo del umbral de identificación para{" "}
-                    {TIPO_OPERACION_LABELS[tipoSel as TipoOperacion]} ($
-                    {UMBRALES_IDENTIFICACION[
-                      tipoSel as TipoOperacion
-                    ].toLocaleString("es-MX")}
-                    ). El expediente se puede crear igualmente.
-                  </p>
-                )}
+                {/* Operaciones de la venta */}
+                <OperacionesEditor
+                  operaciones={values.operaciones}
+                  errors={opErrors}
+                  total={total}
+                  onUpdate={updateOperacion}
+                  onBlur={blurOperacion}
+                  onAdd={addOperacion}
+                  onRemove={removeOperacion}
+                />
               </div>
 
               {/* Server error banner */}
@@ -852,6 +892,185 @@ function NuevaVentaContent() {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// --- Editor de operaciones (cada operación: tipo + monto, una por una) ---
+
+// Tipos seleccionables, con su icono (lucide). Se capturan de uno en uno: para
+// 3 blindajes se agregan 3 operaciones, cada una con su propio monto.
+const TIPOS_OPERACION: { value: TipoOperacion; label: string; Icon: LucideIcon }[] =
+  [
+    { value: "ARMORING", label: "Blindaje", Icon: Shield },
+    { value: "VEHICLE_SALE", label: "Venta de vehículo", Icon: Car },
+  ];
+
+function OperacionesEditor({
+  operaciones,
+  errors,
+  total,
+  onUpdate,
+  onBlur,
+  onAdd,
+  onRemove,
+}: {
+  operaciones: OperacionFormValue[];
+  errors: OperacionErrors[];
+  total: number;
+  onUpdate: (i: number, field: keyof OperacionFormValue, v: string) => void;
+  onBlur: (i: number) => void;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-[var(--color-border-inner)] pt-6">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-muted)]">
+          Operaciones de la venta
+          <span className="text-[var(--color-accent)] ml-0.5">*</span>
+        </span>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--color-accent-text-dark)] hover:bg-[var(--color-accent)]/10 transition-colors cursor-pointer"
+        >
+          <Plus size={13} />
+          Agregar operación
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {operaciones.map((op, i) => {
+          const err = errors[i] ?? {};
+          const tipoSel = op.tipo as TipoOperacion | "";
+          const montoNum = parseFloat(op.monto.replace(/,/g, "")) || 0;
+          const showThresholdNote =
+            tipoSel !== "" &&
+            montoNum > 0 &&
+            !requiereIdentificacion(montoNum, tipoSel as TipoOperacion);
+          return (
+            <div
+              key={i}
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5"
+            >
+              {/* Encabezado de la operación */}
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--color-accent-light)] text-[10px] font-semibold tabular-nums text-[var(--color-accent-text-dark)]">
+                  {i + 1}
+                </span>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--color-muted)]">
+                  Operación
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(i)}
+                  disabled={operaciones.length <= 1}
+                  aria-label="Quitar operación"
+                  className={`ml-auto rounded-md p-1.5 transition-colors ${
+                    operaciones.length <= 1
+                      ? "text-[var(--color-border)] cursor-not-allowed"
+                      : "text-[var(--color-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-bg)] cursor-pointer"
+                  }`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-start gap-2.5">
+                {/* Tipo: selector segmentado con icono */}
+                <div className="flex-1 min-w-[240px]">
+                  <div
+                    role="radiogroup"
+                    aria-label="Tipo de operación"
+                    aria-invalid={!!err.tipo}
+                    className="grid grid-cols-2 gap-1.5"
+                  >
+                    {TIPOS_OPERACION.map(({ value, label, Icon }) => {
+                      const selected = op.tipo === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => {
+                            onUpdate(i, "tipo", value);
+                            onBlur(i);
+                          }}
+                          className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2.5 text-[13px] font-medium transition-colors cursor-pointer ${
+                            selected
+                              ? "border-[var(--color-accent)] bg-[var(--color-accent-light)] text-[var(--color-accent-text-dark)]"
+                              : "border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:border-[var(--color-tertiary)]"
+                          }`}
+                        >
+                          <Icon size={15} strokeWidth={1.9} />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {err.tipo && (
+                    <p className="mt-1 text-xs text-[var(--color-error)]" role="alert">
+                      {err.tipo}
+                    </p>
+                  )}
+                </div>
+
+                {/* Monto */}
+                <div className="w-40 shrink-0">
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-[var(--color-tertiary)]">
+                      $
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      aria-label="Monto de la operación"
+                      value={op.monto}
+                      onChange={(e) => onUpdate(i, "monto", e.target.value)}
+                      onBlur={() => onBlur(i)}
+                      aria-invalid={!!err.monto}
+                      className={`${inputClass(!!err.monto)} pl-7 tabular-nums`}
+                    />
+                  </div>
+                  {err.monto && (
+                    <p className="mt-1 text-xs text-[var(--color-error)]" role="alert">
+                      {err.monto}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {showThresholdNote && (
+                <p className="mt-2.5 text-xs text-[var(--color-muted)] bg-[var(--color-bg-hover)] rounded-lg px-3 py-2">
+                  El monto está por debajo del umbral de identificación para{" "}
+                  {TIPO_OPERACION_LABELS[tipoSel as TipoOperacion]} ($
+                  {UMBRALES_IDENTIFICACION[tipoSel as TipoOperacion].toLocaleString(
+                    "es-MX",
+                  )}
+                  ). El expediente se puede crear igualmente.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Total */}
+      <div className="flex items-center justify-between border-t border-[var(--color-border-inner)] pt-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-muted)]">
+          Total del expediente
+        </span>
+        <span className="text-base font-semibold tabular-nums text-[var(--color-text)]">
+          $
+          {total.toLocaleString("es-MX", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      </div>
     </div>
   );
 }

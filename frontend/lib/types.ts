@@ -54,11 +54,23 @@ export const DOCUMENTO_REQUERIDO_LABELS: Record<DocumentoRequerido, string> = {
   PROOF_OF_ADDRESS: "Comprobante de Domicilio",
 };
 
+// Tipos seleccionables por línea de operación.
 export type TipoOperacion = "ARMORING" | "VEHICLE_SALE";
 
-export const TIPO_OPERACION_LABEL: Record<TipoOperacion, string> = {
+// Resumen del expediente: un tipo real, o "MIXED" si la venta mezcla tipos.
+export type TipoOperacionResumen = TipoOperacion | "MIXED";
+
+export const TIPO_OPERACION_LABEL: Record<TipoOperacionResumen, string> = {
   ARMORING: "Blindaje",
   VEHICLE_SALE: "Venta vehículo",
+  MIXED: "Mixto",
+};
+
+// Una operación de la venta: tipo + monto. Se capturan una por una (3 blindajes =
+// 3 operaciones), cada una con su propio monto.
+export type Operacion = {
+  tipo: TipoOperacion;
+  monto: number;
 };
 
 export type Expediente = {
@@ -70,7 +82,9 @@ export type Expediente = {
   clienteCorreo: string;
   fechaCreacion: string;
   estado: Estado;
-  tipoOperacion: TipoOperacion;
+  // Resumen de la venta: un tipo real o "MIXED". El desglose va en `operaciones`.
+  tipoOperacion: TipoOperacionResumen;
+  operaciones: Operacion[];
   montoEstimado: number;
   nextStepPrioritario: string;
   capturista: string;
@@ -122,8 +136,7 @@ export type CreateExpedienteRequest = {
   clienteTelefono: string;
   clienteCorreo: string;
   clienteRfc?: string;
-  montoEstimado: number;
-  tipoOperacion: TipoOperacion;
+  operaciones: Operacion[];
 };
 
 export type CreateExpedienteResponse = Expediente;
@@ -276,7 +289,7 @@ export type ConsultaLLM = {
 export type ExpedienteDetalle = {
   expediente: Expediente & {
     montoEstimado: number;
-    tipoOperacion: TipoOperacion;
+    tipoOperacion: TipoOperacionResumen;
   };
   checklist: ChecklistItem[];
   documentos: Documento[];

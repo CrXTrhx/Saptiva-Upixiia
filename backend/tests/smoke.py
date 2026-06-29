@@ -36,8 +36,8 @@ def main() -> int:
     # 2. Crear venta: Juan Perez, 700000, blindaje
     r = c.post("/expedientes", json={
         "clienteNombre": "Juan Perez", "clienteTelefono": "5550001111",
-        "clienteCorreo": "juan@example.com", "montoEstimado": 700000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "juan@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 700000}],
     })
     check("2. crear expediente", r.status_code == 201, r.text)
     exp = r.json()
@@ -150,8 +150,8 @@ def main() -> int:
     # crear un segundo expediente para asignarle el huerfano
     r2 = c.post("/expedientes", json={
         "clienteNombre": "Maria Lopez", "clienteTelefono": "5552223333",
-        "clienteCorreo": "maria@example.com", "montoEstimado": 300000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "maria@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 300000}],
     })
     exp2_id = r2.json()["id"]
     r = c.post(f"/huerfanos/{orphan_id}/asignar", json={"expedienteId": exp2_id, "tipo": "OFFICIAL_ID"})
@@ -160,8 +160,8 @@ def main() -> int:
     # 16. Cancelar un expediente con motivo
     r3 = c.post("/expedientes", json={
         "clienteNombre": "Pedro Ruiz", "clienteTelefono": "5554445555",
-        "clienteCorreo": "pedro@example.com", "montoEstimado": 400000,
-        "tipoOperacion": "blindaje",
+        "clienteCorreo": "pedro@example.com",
+        "operaciones": [{"tipo": "blindaje", "monto": 400000}],
     })
     exp3_id = r3.json()["id"]
     r = c.patch(f"/expedientes/{exp3_id}/cancelar", json={"motivo": "cliente desistio de la compra"})

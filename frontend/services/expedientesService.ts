@@ -15,6 +15,7 @@ import type {
   MotivoRechazo,
   DocumentoRequerido,
   TipoOperacion,
+  Operacion,
 } from "@/lib/types";
 
 // Vista previa del correo de instrucciones que arma el backend (GET /instrucciones).
@@ -111,17 +112,17 @@ export const expedientesService = {
   },
 
   // Vista previa visual del código; el real lo asigna el backend al crear.
-  // Formato: EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX}. El consecutivo (NNNNN) y los 4
+  // Formato: EXP-AAAA-{BLN|VNT|MIX}{NNNNN}-{XXXX}. El consecutivo (NNNNN) y los 4
   // caracteres aleatorios (XXXX) los asigna el backend, así que aquí van como
-  // marcadores; solo el tipo de operación se refleja en vivo.
-  previewNextCodigo(tipoOperacion?: TipoOperacion | ""): string {
+  // marcadores. El prefijo se deriva de los tipos seleccionados: MIX si hay más de
+  // un tipo distinto, si no BLN/VNT.
+  previewNextCodigo(tipos: Array<TipoOperacion | "">): string {
     const year = new Date().getFullYear();
-    const op =
-      tipoOperacion === "ARMORING"
-        ? "BLN"
-        : tipoOperacion === "VEHICLE_SALE"
-          ? "VNT"
-          : "···";
+    const distintos = Array.from(new Set(tipos.filter(Boolean)));
+    let op = "···";
+    if (distintos.length > 1) op = "MIX";
+    else if (distintos[0] === "ARMORING") op = "BLN";
+    else if (distintos[0] === "VEHICLE_SALE") op = "VNT";
     return `EXP-${year}-${op}#####-XXXX`;
   },
 
@@ -141,8 +142,7 @@ export const expedientesService = {
       clienteTelefono: string;
       clienteCorreo: string;
       clienteRfc?: string;
-      montoEstimado: number;
-      tipoOperacion: TipoOperacion;
+      operaciones: Operacion[];
     },
   ): Promise<Expediente> {
     return apiClient<Expediente>(`/expedientes/${id}`, {
@@ -292,6 +292,21 @@ export const expedientesService = {
     });
   },
 
+  async reenviarInstrucciones(
+    id: string,
+  ): Promise<{ enviado: boolean; correo: string }> {
+    return apiClient<{ enviado: boolean; correo: string }>(
+      `/expedientes/${id}/reenviar-instrucciones`,
+      { method: "POST" },
+    );
+  },
+
+  async restaurarExpediente(id: string): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}/restaurar`, {
+      method: "PATCH",
+    });
+  },
+
   async getInstrucciones(id: string): Promise<{
     codigo: string;
     whatsapp: string;
@@ -310,13 +325,6 @@ export const expedientesService = {
       destinatario: string;
       asunto: string;
     }>(`/expedientes/${id}/instrucciones`);
-  },
-
-  async reenviarInstrucciones(id: string): Promise<{ enviado: boolean; correo: string }> {
-    return apiClient<{ enviado: boolean; correo: string }>(
-      `/expedientes/${id}/reenviar-instrucciones`,
-      { method: "POST" },
-    );
   },
 
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {

@@ -112,6 +112,10 @@ async def mailgun_inbound(request: Request, background_tasks: BackgroundTasks):
     sender = form.get("sender") or form.get("from")
     subject = form.get("subject") or ""
     body = form.get("body-plain") or form.get("stripped-text") or ""
+    # `recipient` es la direccion a la que escribio el cliente. Con sub-addressing
+    # (`documentos+EXP-...@`, al RESPONDER el correo de instrucciones) lleva el codigo
+    # del expediente, asi que el cliente no necesita escribirlo.
+    recipient = form.get("recipient") or form.get("to") or ""
 
     # Mailgun nombra los adjuntos attachment-1, attachment-2, ... Hay que leer los
     # bytes AHORA (antes de responder); la BackgroundTask corre tras cerrar el request.
@@ -147,5 +151,6 @@ async def mailgun_inbound(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(
         ingest.process_email_attachments,
         sender=sender, subject=subject, body=body, attachments=attachments,
+        recipient=recipient,
     )
     return {"status": "accepted", "attachments": len(attachments)}

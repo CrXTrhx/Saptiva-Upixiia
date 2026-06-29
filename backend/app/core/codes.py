@@ -83,6 +83,7 @@ class OrphanStatus:
 class OperationType:
     ARMORING = "ARMORING"
     VEHICLE_SALE = "VEHICLE_SALE"
+    MIXED = "MIXED"  # resumen de una venta con tipos mezclados (codigo MIX)
 
 
 class EventType:

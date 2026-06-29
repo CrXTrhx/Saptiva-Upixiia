@@ -82,8 +82,10 @@ services:
         sync: false
       - key: MAILGUN_DOMAIN
         value: mg.digitalfoldr.com
+      # Remitente RESPONDIBLE: usa la bandeja de documentos (no noreply) para que el
+      # cliente pueda responder y sus archivos lleguen al webhook entrante.
       - key: MAIL_FROM
-        value: Upiixia <noreply@mg.digitalfoldr.com>
+        value: Digital Foldr <documentos@mg.digitalfoldr.com>
       - key: MAILGUN_BASE_URL
         value: https://api.mailgun.net
       - key: MAILGUN_SIGNING_KEY

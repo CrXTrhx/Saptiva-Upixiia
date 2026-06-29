@@ -75,6 +75,25 @@ class CaseFile(Base):
     updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
+class CaseOperation(Base):
+    """Una operacion de la venta (un auto, un blindaje, etc.). Una venta tiene 1+N.
+
+    Las operaciones se capturan una por una (3 blindajes = 3 filas), cada una con su
+    propio monto. case_file.operation_type_code es el RESUMEN (tipo unico o 'MIXED');
+    el detalle por linea vive aqui. case_file.estimated_amount = suma de amount.
+    """
+    __tablename__ = "case_operation"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    case_file_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_file.id"))
+    operation_type_code: Mapped[str] = mapped_column(String(40))
+    amount: Mapped[float] = mapped_column(Numeric(14, 2))
+    sort_order: Mapped[int] = mapped_column(SmallInteger, default=0)
+    active_flag: Mapped[int] = mapped_column(SmallInteger, default=1)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
+
+
 class Document(Base):
     __tablename__ = "document"
 
