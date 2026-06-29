@@ -292,6 +292,16 @@ export const expedientesService = {
     });
   },
 
+  async reenviarInstrucciones(id: string): Promise<void> {
+    await apiClient<void>(`/expedientes/${id}/reenviar-instrucciones`, {
+      method: "POST",
+    });
+  async restaurarExpediente(id: string): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}/restaurar`, {
+      method: "PATCH",
+    });
+  },
+
   async getInstrucciones(id: string): Promise<{
     codigo: string;
     whatsapp: string;
@@ -317,6 +327,7 @@ export const expedientesService = {
       `/expedientes/${id}/reenviar-instrucciones`,
       { method: "POST" },
     );
+
   },
 
   async agregarNota(expedienteId: string, texto: string): Promise<Nota> {
