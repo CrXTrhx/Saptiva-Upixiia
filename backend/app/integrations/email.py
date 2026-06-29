@@ -54,6 +54,24 @@ def verify_mailgun_signature(
     return hmac.compare_digest(expected, signature)
 
 
+def reply_to_for_code(code: str | None) -> str | None:
+    """Construye la direccion de respuesta con el codigo embebido (sub-addressing).
+
+    A partir de SYSTEM_EMAIL (`documentos@mg.digitalfoldr.com`) genera
+    `documentos+EXP-2026-BLN00057-WQAC@mg.digitalfoldr.com`. Asi, cuando el cliente
+    RESPONDE al correo, su mensaje viaja a una direccion que ya lleva el codigo; el
+    webhook entrante lo extrae del destinatario y no hace falta que el cliente escriba
+    nada. Requiere que la Route de Mailgun acepte el sufijo `+...` (ver DEPLOY).
+
+    Devuelve None si no hay un correo base o un codigo (el llamador omite el header).
+    """
+    base = settings.system_email
+    if not (base and code and "@" in base):
+        return None
+    local, domain = base.split("@", 1)
+    return f"{local}+{code}@{domain}"
+
+
 def download_attachment(url: str) -> bytes | None:
     """Descarga un adjunto almacenado en Mailgun (accion 'store and notify').
 
@@ -72,23 +90,49 @@ def download_attachment(url: str) -> bytes | None:
         return None
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
-    """Envia un correo de texto plano via Mailgun. Devuelve True si se envio.
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    html: str | None = None,
+    reply_to: str | None = None,
+) -> bool:
+    """Envia un correo via Mailgun. Devuelve True si se envio.
 
-    Sin credenciales configuradas cae a un stub (imprime) para dev/tests. Nunca
-    lanza excepcion: si el envio falla, lo registra y devuelve False para no
-    interrumpir el flujo que lo llamo.
+    - `body`: texto plano (fallback obligatorio).
+    - `html`: version con formato (botones/CTA). Mailgun manda ambos (multipart/alt).
+    - `reply_to`: cabecera Reply-To. Sirve para que la RESPUESTA del cliente caiga en
+      la bandeja entrante (no en un noreply) y, con sub-addressing, lleve el codigo.
+
+    El remitente sale de MAIL_FROM; si no esta configurado usa SYSTEM_EMAIL (la bandeja
+    a la que el cliente envia sus documentos) para que el correo sea respondible, y solo
+    como ultimo recurso un `noreply@`.
+
+    Sin credenciales configuradas cae a un stub (imprime) para dev/tests. Nunca lanza
+    excepcion: si el envio falla, lo registra y devuelve False para no interrumpir el
+    flujo que lo llamo.
     """
     if not _mailgun_configured():
-        print(f"[email-stub] -> {to} | {subject}: {body}")
+        extra = f" | reply-to={reply_to}" if reply_to else ""
+        print(f"[email-stub] -> {to} | {subject}{extra}: {body}")
         return False
     url = f"{settings.mailgun_base_url.rstrip('/')}/v3/{settings.mailgun_domain}/messages"
-    sender = settings.mail_from or f"noreply@{settings.mailgun_domain}"
+    sender = (
+        settings.mail_from
+        or settings.system_email
+        or f"noreply@{settings.mailgun_domain}"
+    )
+    data = {"from": sender, "to": to, "subject": subject, "text": body}
+    if html:
+        data["html"] = html
+    if reply_to:
+        data["h:Reply-To"] = reply_to  # cabecera custom de Mailgun (prefijo h:)
     try:
         resp = httpx.post(
             url,
             auth=("api", settings.mailgun_api_key),
-            data={"from": sender, "to": to, "subject": subject, "text": body},
+            data=data,
             timeout=15.0,
         )
         resp.raise_for_status()

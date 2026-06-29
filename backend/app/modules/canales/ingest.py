@@ -87,21 +87,25 @@ def process_email_attachments(
     subject: str | None,
     body: str | None,
     attachments: list[tuple[bytes, str, str | None]],
+    recipient: str | None = None,
 ) -> None:
     """Procesa (en segundo plano) los adjuntos de un correo entrante de Mailgun.
 
     Corre FUERA del request (BackgroundTask), por lo que abre su propia sesion. Por
     cada adjunto ejecuta la logica comun de canales (handle_inbound -> pipeline de
-    extraccion / cola de huerfanos). El codigo de expediente puede venir tanto en el
-    ASUNTO como en el cuerpo del correo; ambos se concatenan para buscarlo.
+    extraccion / cola de huerfanos). El codigo de expediente puede venir en el
+    DESTINATARIO (sub-addressing `documentos+EXP-...@`, cuando el cliente RESPONDE al
+    correo), en el ASUNTO (`Re: ... EXP-...`) o en el cuerpo; se buscan en ese orden de
+    prioridad concatenandolos.
 
     Solo se responde al remitente cuando los documentos se asignaron a un expediente
     valido (acuse de recibo). Si el correo no trae un expediente valido (sin codigo o
     con uno inexistente) o no trae adjuntos, los archivos quedan en la cola de
     huerfanos en silencio: NO se envia ningun correo.
     """
-    # El codigo puede venir en el asunto o el cuerpo: se busca en ambos.
-    message_text = "\n".join(p for p in (subject, body) if p)
+    # El codigo puede venir en el destinatario (tag +EXP-...), el asunto o el cuerpo.
+    # Se pone el destinatario primero para que el sub-addressing tenga prioridad.
+    message_text = "\n".join(p for p in (recipient, subject, body) if p)
     asignados: list[str] = []
     huerfanos: list[str] = []
     codigo: str | None = None

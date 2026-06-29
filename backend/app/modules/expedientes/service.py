@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import html as html_lib
 import uuid
+from urllib.parse import quote
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
@@ -477,8 +479,8 @@ def instrucciones_texto(db: Session, case: CaseFile) -> str:
         lineas.append(f"  - {label} ({motivo})" if motivo else f"  - {label}")
     lineas += [
         "",
-        f"Envialos por correo a {correo} e incluye el codigo {codigo} en el asunto; "
-        "asi los asociamos a tu expediente automaticamente.",
+        f"Puedes responder a este mismo correo con los documentos adjuntos, o enviarlos "
+        f"a {correo} con el codigo {codigo} en el asunto.",
         "",
         "Recomendaciones:",
         "  - Adjunta cada documento en PDF o foto (max. 15 MB por archivo).",
@@ -489,13 +491,90 @@ def instrucciones_texto(db: Session, case: CaseFile) -> str:
     return "\n".join(lineas)
 
 
+def _instrucciones_html_shell(nombre_html: str, cuerpo_html: str) -> str:
+    """Envoltorio HTML comun del correo de instrucciones (nombre ya escapado)."""
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,'
+        'sans-serif;max-width:560px;margin:0 auto;color:#302F2D;font-size:14px;'
+        'line-height:1.6;">'
+        f"<p>Hola {nombre_html},</p>"
+        f"{cuerpo_html}"
+        '<p style="margin-top:20px;">Gracias.</p>'
+        "</div>"
+    )
+
+
+def instrucciones_html(db: Session, case: CaseFile) -> str:
+    """Version HTML del correo de instrucciones.
+
+    Igual contenido que `instrucciones_texto`, pero con un boton CTA cuyo `mailto:` abre
+    un correo nuevo ya con el codigo del expediente en el ASUNTO. Asi el cliente puede
+    (a) responder a este correo, o (b) tocar el boton: en ambos casos el codigo viaja
+    solo, sin tener que escribirlo.
+    """
+    nombre = (case.client_name or "").strip().split(" ")[0] or "cliente"
+    codigo = case.code
+    correo = settings.system_email
+    pendientes = _documentos_pendientes(db, case)
+    esc = html_lib.escape
+    accent = "#C07B3A"
+
+    if not pendientes:
+        cuerpo = (
+            f"<p>Ya recibimos todos los documentos de tu expediente "
+            f"<strong>{esc(codigo)}</strong>.</p>"
+            "<p>Por ahora no necesitas enviar nada mas; te avisaremos del "
+            "siguiente paso.</p>"
+        )
+        return _instrucciones_html_shell(esc(nombre), cuerpo)
+
+    items = "".join(
+        f'<li style="margin:4px 0;">{esc(label)}'
+        + (f' <span style="color:#989396;">({esc(motivo)})</span>' if motivo else "")
+        + "</li>"
+        for label, motivo in pendientes
+    )
+
+    asunto_q = quote(codigo)
+    body_q = quote(f"Adjunto mis documentos para el expediente {codigo}.")
+    mailto = f"mailto:{correo}?subject={asunto_q}&body={body_q}"
+
+    cuerpo = (
+        f"<p>Para continuar con tu expediente <strong>{esc(codigo)}</strong> todavia "
+        "nos faltan estos documentos:</p>"
+        f'<ul style="padding-left:18px;margin:12px 0;">{items}</ul>'
+        '<p style="margin:14px 0 16px;">Puedes responder a este mismo correo con los '
+        "documentos adjuntos, o enviarlos a "
+        f'<a href="mailto:{correo}?subject={asunto_q}" style="color:{accent};">'
+        f"{esc(correo)}</a> con el codigo <strong>{esc(codigo)}</strong> en el asunto.</p>"
+        f'<p style="margin:0 0 22px;"><a href="{mailto}" '
+        f'style="display:inline-block;background:{accent};color:#ffffff;'
+        "text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;"
+        'font-size:14px;">Enviar mis documentos</a></p>'
+        '<p style="margin:0 0 6px;font-weight:600;">Recomendaciones:</p>'
+        '<ul style="padding-left:18px;margin:0;">'
+        '<li style="margin:4px 0;">Adjunta cada documento en PDF o foto (max. 15 MB '
+        "por archivo).</li>"
+        '<li style="margin:4px 0;">Puedes mandarlos todos en un solo correo o uno por '
+        "uno.</li>"
+        "</ul>"
+    )
+    return _instrucciones_html_shell(esc(nombre), cuerpo)
+
+
 def reenviar_instrucciones(db: Session, case: CaseFile, user: AppUser) -> dict:
     destinatario = (case.client_email or "").strip()
     if not destinatario:
         raise ConflictError("El expediente no tiene un correo registrado")
     subject = f"Documentos para tu expediente {case.code}"
     cuerpo = instrucciones_texto(db, case)
-    enviado = email_client.send_email(destinatario, subject, cuerpo)
+    cuerpo_html = instrucciones_html(db, case)
+    # Reply-To con sub-addressing: la respuesta del cliente cae en la bandeja entrante
+    # (no en un noreply) y lleva el codigo embebido, asi no tiene que escribirlo.
+    reply_to = email_client.reply_to_for_code(case.code)
+    enviado = email_client.send_email(
+        destinatario, subject, cuerpo, html=cuerpo_html, reply_to=reply_to
+    )
     registrar_evento(
         db, case.id, EventType.INSTRUCTIONS_RESENT,
         f"Instrucciones reenviadas por correo a {destinatario}",
