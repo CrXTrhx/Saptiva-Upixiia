@@ -244,6 +244,20 @@ export const expedientesService = {
     });
   },
 
+  // Descarta un documento rechazado (sale del flujo activo, se conserva en "Descartados").
+  async descartarDocumento(docId: string): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/descartar`, {
+      method: "PATCH",
+    });
+  },
+
+  // Restaura un documento descartado: vuelve a estado "rechazado".
+  async restaurarDescartado(docId: string): Promise<Documento> {
+    return apiClient<Documento>(`/documentos/${docId}/restaurar-descartado`, {
+      method: "PATCH",
+    });
+  },
+
   async reemplazarDocumento(docId: string, archivo: File): Promise<Documento> {
     const form = new FormData();
     form.append("file", archivo);

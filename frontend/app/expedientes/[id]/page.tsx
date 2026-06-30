@@ -8,7 +8,7 @@ import {
   ArrowLeft, ChevronRight, Check, X, Clock, AlertTriangle,
   FileText, Upload, MessageSquare, Mail, Phone, Pencil, Send,
   Archive, Ban, ArrowRight, Sparkles, Plus, RefreshCw, CornerUpLeft,
-  ChevronDown, MessageCircle, Copy, Loader2,
+  ChevronDown, MessageCircle, Copy, Loader2, Trash2, Inbox, RotateCcw,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import ValidarRechazarModal from "@/components/expediente/modals/ValidarRechazarModal";
@@ -17,6 +17,7 @@ import CancelarExpedienteModal from "@/components/expediente/modals/CancelarExpe
 import RespuestaLLMModal from "@/components/expediente/modals/RespuestaLLMModal";
 import EditarDatosModal, { type EditarDatosValues } from "@/components/expediente/modals/EditarDatosModal";
 import { Modal } from "@/components/ui/Modal";
+import { NotificationStack, type Notif } from "@/components/ui/NotificationStack";
 import { expedientesService, type InstruccionesPreview } from "@/services/expedientesService";
 import { TIPO_OPERACION_LABELS } from "@/lib/reglas-negocio";
 import { TIPO_OPERACION_ICONO } from "@/lib/operacion-iconos";
@@ -575,8 +576,8 @@ const DocPreview = React.memo(
   !(!prev.doc.archivoUrl && next.doc.archivoUrl),
 );
 
-function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersionAnterior, readOnly }: {
-  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void; readOnly?: boolean;
+function DocCard({ doc, onValidar, onRechazar, onReemplazar, onDescartar, onOpen, onVerVersionAnterior, readOnly }: {
+  doc: Documento; onValidar: (doc: Documento) => void; onRechazar: (doc: Documento) => void; onReemplazar: (doc: Documento) => void; onDescartar: (doc: Documento) => void; onOpen: (doc: Documento) => void; onVerVersionAnterior: (doc: Documento) => void; readOnly?: boolean;
 }) {
   const dcfg = docEstadoConfig[doc.estado] ?? docEstadoConfig.PENDING;
   const ccfg = canalConfig[doc.canal];
@@ -667,6 +668,11 @@ function DocCard({ doc, onValidar, onRechazar, onReemplazar, onOpen, onVerVersio
             <button onClick={() => onReemplazar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
               <RefreshCw size={11} strokeWidth={1.75} /> Reemplazar
             </button>
+            {doc.estado === "REJECTED" && (
+              <button onClick={() => onDescartar(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#989396" }} title="Descartar para limpiar el espacio de trabajo (se conserva en Descartados)">
+                <Trash2 size={11} strokeWidth={1.75} /> Descartar
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -758,6 +764,10 @@ function DetalleContent() {
   // así un sondeo que no trae cambios reales no re-renderiza el árbol (con framer-motion).
   const firmaRef = useRef<string>("");
   const ultimaRenovacionUrlsRef = useRef(0);
+  // --- Salvaguardas anti-carrera del sondeo (Bug: el estado revertía a los segundos) ---
+  // Un sondeo que arrancó antes de una mutación NO debe pisar el estado recién cambiado.
+  const mutatingRef = useRef(0); // # de mutaciones en curso
+  const lastMutationAtRef = useRef(0); // ts de la última mutación completada
   useEffect(() => {
     if (detalle) {
       firmaRef.current = JSON.stringify(detalle, (k, v) =>
@@ -767,6 +777,41 @@ function DetalleContent() {
     }
   }, [detalle]);
 
+  // Refetch autoritativo, reutilizable por el sondeo y por los handlers de mutación.
+  // Descarta su propia respuesta si quedó obsoleta respecto a una mutación reciente.
+  const refrescarDetalle = useCallback(async () => {
+    const startedAt = Date.now();
+    const fresh = await expedientesService.getExpedienteDetalle(id);
+    if (!fresh) return;
+    if (mutatingRef.current > 0 || lastMutationAtRef.current > startedAt) return;
+    const firma = JSON.stringify(fresh, (k, v) =>
+      k === "archivoUrl" ? undefined : v,
+    );
+    const debeRenovarUrls =
+      Date.now() - ultimaRenovacionUrlsRef.current >= 45 * 60 * 1000;
+    if (firma !== firmaRef.current || debeRenovarUrls) {
+      firmaRef.current = firma;
+      ultimaRenovacionUrlsRef.current = Date.now();
+      setDetalle(fresh);
+    }
+  }, [id]);
+
+  // Envuelve una mutación: bloquea el sondeo mientras corre, marca el fin y refresca
+  // de inmediato con el estado autoritativo del backend (incluye el evento real).
+  const runMutation = useCallback(
+    async (fn: () => Promise<void>) => {
+      mutatingRef.current++;
+      try {
+        await fn();
+      } finally {
+        mutatingRef.current--;
+        lastMutationAtRef.current = Date.now();
+        void refrescarDetalle();
+      }
+    },
+    [refrescarDetalle],
+  );
+
   useEffect(() => {
     if (dataStatus !== "loaded") return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -774,18 +819,8 @@ function DetalleContent() {
     const intervalo = hayProcesando ? 2500 : 5000;
 
     const refrescar = async () => {
-      const fresh = await expedientesService.getExpedienteDetalle(id);
-      if (disposed || !fresh) return;
-      const firma = JSON.stringify(fresh, (k, v) =>
-        k === "archivoUrl" ? undefined : v,
-      );
-      const debeRenovarUrls =
-        Date.now() - ultimaRenovacionUrlsRef.current >= 45 * 60 * 1000;
-      if (firma !== firmaRef.current || debeRenovarUrls) {
-        firmaRef.current = firma;
-        ultimaRenovacionUrlsRef.current = Date.now();
-        setDetalle(fresh);
-      }
+      if (disposed) return;
+      await refrescarDetalle();
     };
 
     const stop = () => {
@@ -820,7 +855,7 @@ function DetalleContent() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [hayProcesando, id, dataStatus]);
+  }, [hayProcesando, id, dataStatus, refrescarDetalle]);
 
   const [modal, setModal] = useState<ModalState>({ type: "none" });
   const [modalLoading, setModalLoading] = useState(false);
@@ -833,19 +868,35 @@ function DetalleContent() {
 
 
 
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  // Centro de notificaciones emergentes (arriba-derecha, estilo macOS). Sustituye al
+  // toast inferior. Se alimenta de (a) acciones/errores vía showToast y (b) eventos
+  // nuevos del historial del servidor (eventos de fondo) vía un efecto más abajo.
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const dismissNotif = useCallback((nid: string) => {
+    setNotifs((prev) => prev.filter((n) => n.id !== nid));
+  }, []);
+  const pushNotif = useCallback(
+    (titulo: string, tono: TonoEvento = "ok", descripcion?: string) => {
+      const nid = "n-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+      // Máximo 4 visibles: las más viejas salen por arriba.
+      setNotifs((prev) => [...prev.slice(-3), { id: nid, tono, titulo, descripcion }]);
+    },
+    [],
+  );
   const handleOpenPreview = useCallback((doc: Documento) => setPreviewDoc(doc), []);
   const handleClosePreview = useCallback(() => setPreviewDoc(null), []);
   const handleVerVersionAnterior = useCallback((doc: Documento) => {
     if (doc.versionAnterior) setVersionAnteriorDe(doc);
   }, []);
-  const showToast = useCallback((msg: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(msg);
-    toastTimer.current = setTimeout(() => setToast(null), 2600);
-  }, []);
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  // Compat: showToast conserva su firma; ahora emite una notificación emergente.
+  // El tono se infiere del mensaje (errores → warn).
+  const showToast = useCallback(
+    (msg: string) => {
+      const tono: TonoEvento = /error|no se|no pudo|no pudieron/i.test(msg) ? "warn" : "ok";
+      pushNotif(msg, tono);
+    },
+    [pushNotif],
+  );
 
   const [detalleAbiertoTipo, setDetalleAbiertoTipo] = useState<DocumentoRequerido | null>(null);
 
@@ -853,6 +904,7 @@ function DetalleContent() {
   const [notaLoading, setNotaLoading] = useState(false);
   const [nuevaNota, setNuevaNota] = useState("");
   const [historialOpen, setHistorialOpen] = useState(false);
+  const [descartadosOpen, setDescartadosOpen] = useState(false);
 
   // Panel de vista previa del correo de instrucciones (De/Para/Asunto/Cuerpo).
   // `cargando` = trayendo la vista previa del backend; `enviando` = enviando a Mailgun.
@@ -869,7 +921,34 @@ function DetalleContent() {
   const nextSteps = detalle?.nextSteps ?? [];
   const historial = detalle?.historial ?? [];
   const notas = detalle?.notas ?? [];
+  const descartados = detalle?.descartados ?? [];
   const exp = detalle?.expediente;
+
+  // --- Notificaciones emergentes desde el historial del servidor ---
+  // Se siembran los eventos ya existentes en la primera carga (no notificar lo viejo).
+  // Después, cada evento nuevo del servidor (id UUID, no optimista "ev-...") se anuncia,
+  // salvo que provenga de una mutación reciente de ESTE usuario (ya vio el showToast):
+  // así solo emergen los eventos de fondo (p.ej. un documento que sale de PROCESSING).
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
+  const notifSeededRef = useRef(false);
+  useEffect(() => {
+    if (!detalle) return;
+    const eventos = detalle.historial ?? [];
+    if (!notifSeededRef.current) {
+      eventos.forEach((ev) => notifiedIdsRef.current.add(ev.id));
+      notifSeededRef.current = true;
+      return;
+    }
+    const recienMutado = Date.now() - lastMutationAtRef.current < 8000;
+    // El historial viene del más reciente al más viejo; lo invertimos para anunciar en orden.
+    [...eventos].reverse().forEach((ev) => {
+      if (notifiedIdsRef.current.has(ev.id)) return;
+      notifiedIdsRef.current.add(ev.id);
+      if (ev.id.startsWith("ev-")) return; // optimista: el showToast ya dio feedback
+      if (recienMutado) return; // mutación propia reciente: evita duplicar el showToast
+      pushNotif(EVENT_TYPE_LABELS[ev.tipo] ?? ev.tipo, ev.tono, localizarDescripcion(ev.descripcion));
+    });
+  }, [detalle, pushNotif]);
 
   const activeDocumentos = useMemo(() => documentos.filter((d) => d.estado !== "REPLACED"), [documentos]);
   const tiposDisponiblesParaSubida = useMemo(
@@ -894,31 +973,80 @@ function DetalleContent() {
 
   async function handleValidarDoc(docId: string, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
-    const prev = { ...detalle };
-    const doc = detalle.documentos.find((d) => d.id === docId);
-    const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "DOCUMENT_VALIDATED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
-    setDetalle({
-      ...detalle,
-      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "VALIDATED", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
-      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "VALIDATED" } : c),
-      historial: [ev, ...detalle.historial],
+    const base = detalle;
+    await runMutation(async () => {
+      const prev = { ...base };
+      const doc = base.documentos.find((d) => d.id === docId);
+      const ev: Evento = { id: "ev-val-" + Date.now(), tipo: "DOCUMENT_VALIDATED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} validado`.trim(), timestamp: new Date().toISOString(), tono: "ok" };
+      setDetalle({
+        ...base,
+        documentos: base.documentos.map((d) => d.id === docId ? { ...d, estado: "VALIDATED", ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+        checklist: base.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "VALIDATED" } : c),
+        historial: [ev, ...base.historial],
+      });
+      try { await expedientesService.validarDocumento(docId); showToast("Documento validado"); } catch { setDetalle(prev); showToast("Error al validar documento"); }
     });
-    try { await expedientesService.validarDocumento(docId); showToast("Documento validado"); } catch { setDetalle(prev); showToast("Error al validar documento"); }
   }
 
   async function handleRechazarDoc(docId: string, motivo: MotivoRechazo, datosExtraidos?: Record<string, string>) {
     if (!detalle) return;
-    const prev = { ...detalle };
-    const doc = detalle.documentos.find((d) => d.id === docId);
-    const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "DOCUMENT_REJECTED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} rechazado. Motivo: ${MOTIVO_RECHAZO_LABELS[motivo.categoria] ?? motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
-    setDetalle({
-      ...detalle,
-      documentos: detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REJECTED", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
-      checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "REJECTED" } : c),
-      historial: [ev, ...detalle.historial],
-    });
+    const base = detalle;
     setModal({ type: "none" });
-    try { await expedientesService.rechazarDocumento(docId, motivo); showToast("Documento rechazado"); } catch { setDetalle(prev); showToast("Error al rechazar documento"); }
+    await runMutation(async () => {
+      const prev = { ...base };
+      const doc = base.documentos.find((d) => d.id === docId);
+      const ev: Evento = { id: "ev-rech-" + Date.now(), tipo: "DOCUMENT_REJECTED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} rechazado. Motivo: ${MOTIVO_RECHAZO_LABELS[motivo.categoria] ?? motivo.categoria}`.trim(), timestamp: new Date().toISOString(), tono: "warn" };
+      setDetalle({
+        ...base,
+        documentos: base.documentos.map((d) => d.id === docId ? { ...d, estado: "REJECTED", motivoRechazo: motivo, rechazoAutomatico: false, ...(datosExtraidos ? { datosExtraidos } : {}) } : d),
+        checklist: base.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "REJECTED" } : c),
+        historial: [ev, ...base.historial],
+      });
+      try { await expedientesService.rechazarDocumento(docId, motivo); showToast("Documento rechazado"); } catch { setDetalle(prev); showToast("Error al rechazar documento"); }
+    });
+  }
+
+  // Descarta un documento rechazado (sale del flujo activo, va a "Descartados").
+  async function handleDescartarDoc(docId: string) {
+    if (!detalle) return;
+    const base = detalle;
+    await runMutation(async () => {
+      const prev = { ...base };
+      const doc = base.documentos.find((d) => d.id === docId);
+      const ev: Evento = { id: "ev-desc-" + Date.now(), tipo: "DOCUMENT_DISCARDED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} descartado`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      setDetalle({
+        ...base,
+        documentos: base.documentos.filter((d) => d.id !== docId),
+        descartados: doc ? [{ ...doc, estado: "DISCARDED", fechaDescarte: new Date().toISOString() }, ...base.descartados] : base.descartados,
+        checklist: base.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "PENDING", documentoId: undefined } : c),
+        historial: [ev, ...base.historial],
+      });
+      try { await expedientesService.descartarDocumento(docId); showToast("Documento descartado"); } catch { setDetalle(prev); showToast("Error al descartar documento"); }
+    });
+  }
+
+  // Restaura un documento descartado: vuelve a la lista activa como "rechazado".
+  async function handleRestaurarDescartado(docId: string) {
+    if (!detalle) return;
+    const base = detalle;
+    await runMutation(async () => {
+      const prev = { ...base };
+      const doc = base.descartados.find((d) => d.id === docId);
+      const ev: Evento = { id: "ev-redesc-" + Date.now(), tipo: "DOCUMENT_RESTORED", descripcion: `Documento ${doc ? DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo : ""} restaurado desde descartados`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+      // Si ya hay otro documento activo del mismo tipo, el restaurado lo reemplaza
+      // (igual que el backend): se quita del listado activo para no duplicar el tipo;
+      // el refetch forzado de runMutation lo dejará como "versión anterior" del restaurado.
+      const documentosSinDuplicado = doc
+        ? base.documentos.filter((d) => d.tipo !== doc.tipo)
+        : base.documentos;
+      setDetalle({
+        ...base,
+        descartados: base.descartados.filter((d) => d.id !== docId),
+        documentos: doc ? [{ ...doc, estado: "REJECTED", fechaDescarte: null }, ...documentosSinDuplicado] : base.documentos,
+        historial: [ev, ...base.historial],
+      });
+      try { await expedientesService.restaurarDescartado(docId); showToast("Documento restaurado"); } catch { setDetalle(prev); showToast("Error al restaurar documento"); }
+    });
   }
 
   // Revertir un rechazo automático: vuelve a "recibido" sin llamar backend.
@@ -942,37 +1070,40 @@ function DetalleContent() {
     // refrescar se ve la tarjeta "en analisis" con su barra; el polling lo actualiza
     // al terminar.
     setModal({ type: "none" });
-    try {
-      await expedientesService.reemplazarDocumento(docId, archivo);
-      const fresh = await expedientesService.getExpedienteDetalle(id);
-      if (fresh) setDetalle(fresh);
-      showToast("Documento reemplazado, analizando…");
-    } catch {
-      showToast("Error al reemplazar documento");
-    }
+    await runMutation(async () => {
+      try {
+        await expedientesService.reemplazarDocumento(docId, archivo);
+        showToast("Documento reemplazado, analizando…");
+      } catch {
+        showToast("Error al reemplazar documento");
+      }
+    });
   }
 
   // Restaura la versión anterior: el doc vigente (docId) pasa a histórico y la
   // versión anterior vuelve a estar activa (RECEIVED, pendiente de validar).
   async function handleRestaurarVersion(docId: string) {
     if (!detalle) return;
+    const base = detalle;
     setRestaurarLoading(true);
-    const tipoDoc = detalle.documentos.find((d) => d.id === docId)?.tipo;
-    try {
-      const restaurado = await expedientesService.restaurarVersion(docId);
-      const ev: Evento = { id: "ev-rest-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} restaurado a la versión anterior`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
-      setDetalle({
-        ...detalle,
-        documentos: [
-          ...detalle.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d),
-          restaurado,
-        ],
-        checklist: detalle.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: restaurado.id } : c),
-        historial: [ev, ...detalle.historial],
-      });
-      setVersionAnteriorDe(null);
-      showToast("Versión anterior restaurada");
-    } catch { showToast("Error al restaurar la versión anterior"); } finally { setRestaurarLoading(false); }
+    const tipoDoc = base.documentos.find((d) => d.id === docId)?.tipo;
+    await runMutation(async () => {
+      try {
+        const restaurado = await expedientesService.restaurarVersion(docId);
+        const ev: Evento = { id: "ev-rest-" + Date.now(), tipo: "DOCUMENT_REPLACED", descripcion: `Documento ${tipoDoc ? DOCUMENTO_REQUERIDO_LABELS[tipoDoc] ?? tipoDoc : ""} restaurado a la versión anterior`.trim(), timestamp: new Date().toISOString(), tono: "neutral" };
+        setDetalle({
+          ...base,
+          documentos: [
+            ...base.documentos.map((d) => d.id === docId ? { ...d, estado: "REPLACED" as const } : d),
+            restaurado,
+          ],
+          checklist: base.checklist.map((c) => c.documentoId === docId ? { ...c, estado: "RECEIVED" as const, documentoId: restaurado.id } : c),
+          historial: [ev, ...base.historial],
+        });
+        setVersionAnteriorDe(null);
+        showToast("Versión anterior restaurada");
+      } catch { showToast("Error al restaurar la versión anterior"); } finally { setRestaurarLoading(false); }
+    });
   }
 
   async function handleSubirManual(tipo: DocumentoRequerido, archivo: File) {
@@ -1379,7 +1510,7 @@ function DetalleContent() {
                 >
                   Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
               </Card>
             </motion.div>
           )}
@@ -1427,7 +1558,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
                   ))}
                 </div>
               )}
@@ -1507,6 +1638,24 @@ function DetalleContent() {
                   ))}
                 </AnimatePresence>
               )}
+            </Card>
+
+            {/* BLOQUE F.1 — DESCARTADOS (card separada, debajo de Notas internas) */}
+            <Card className="p-6" hover={false} delay={0.22}>
+              <button
+                onClick={() => setDescartadosOpen(true)}
+                className="w-full flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-wider px-3 py-2 rounded-md cursor-pointer transition-colors"
+                style={{ border: "1px solid #E5DED6", color: "#989396", backgroundColor: "#FAF6F1" }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#F0EBE5")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#FAF6F1")}
+              >
+                <Inbox size={13} strokeWidth={1.75} /> Descartados
+                {descartados.length > 0 && (
+                  <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center" style={{ backgroundColor: "#EFECE9", color: "#5C5957" }}>
+                    {descartados.length}
+                  </span>
+                )}
+              </button>
             </Card>
 
           </div>
@@ -1644,7 +1793,7 @@ function DetalleContent() {
 
       {/* MODALS */}
       {previewDoc && (
-        <Modal open={!!previewDoc} onClose={handleClosePreview} title={`Previsualizar ${previewDoc.filename}`} maxWidth="max-w-4xl">
+        <Modal open={!!previewDoc} onClose={handleClosePreview} title={`Previsualizar ${previewDoc.filename}`} maxWidth="max-w-4xl" zIndexClass="z-[70]">
           <div className="space-y-4">
             <div className="text-sm text-[var(--color-text)]" style={{ color: "#5C5957" }}>
               {DOCUMENTO_REQUERIDO_LABELS[previewDoc.tipo] ?? previewDoc.tipo} • {CANAL_LABELS[previewDoc.canal] ?? previewDoc.canal} • {new Date(previewDoc.fechaRecepcion).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
@@ -1797,22 +1946,52 @@ function DetalleContent() {
         onEnviar={enviarCorreoInstrucciones}
       />
 
-      {/* TOAST */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs text-white pointer-events-none"
-            style={{ backgroundColor: "#302F2D", boxShadow: "0 4px 12px rgba(48,47,45,0.15)" }}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            transition={{ duration: 0.25 }}
-          >
-            <Check size={13} strokeWidth={2.25} style={{ color: "#F19B42" }} />
-            {toast}
-          </motion.div>
+      {/* MODAL — DOCUMENTOS DESCARTADOS */}
+      <Modal open={descartadosOpen} onClose={() => setDescartadosOpen(false)} title="Documentos descartados">
+        {descartados.length === 0 ? (
+          <p className="text-[13px] py-4 text-center" style={{ color: "#989396" }}>
+            No hay documentos descartados.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2.5 max-h-[60vh] overflow-y-auto">
+            {descartados.map((doc) => (
+              <div key={doc.id} className="flex items-start gap-3 rounded-lg p-3" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className="text-[13px] font-semibold" style={{ color: "#302F2D" }}>{DOCUMENTO_REQUERIDO_LABELS[doc.tipo] ?? doc.tipo}</span>
+                    {doc.motivoRechazo && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F6E6DF", color: "#9C4B2E" }}>
+                        {MOTIVO_RECHAZO_LABELS[doc.motivoRechazo.categoria] ?? doc.motivoRechazo.categoria}
+                      </span>
+                    )}
+                  </div>
+                  <p className="font-mono text-[11px] truncate" style={{ color: "#989396" }}>{doc.filename}</p>
+                  {doc.fechaDescarte && (
+                    <p className="text-[10px] tabular-nums mt-0.5" style={{ color: "#B5AFA9" }}>
+                      Descartado el {new Date(doc.fechaDescarte).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {doc.archivoUrl && (
+                    <button onClick={() => handleOpenPreview(doc)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#5C5957" }}>
+                      <FileText size={11} strokeWidth={1.75} /> Ver
+                    </button>
+                  )}
+                  {!esCancelado && (
+                    <button onClick={() => handleRestaurarDescartado(doc.id)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
+                      <RotateCcw size={11} strokeWidth={2} /> Restaurar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
-      </AnimatePresence>
+      </Modal>
+
+      {/* CENTRO DE NOTIFICACIONES (estilo macOS, arriba-derecha) */}
+      <NotificationStack notifs={notifs} onDismiss={dismissNotif} />
     </div>
   );
 }

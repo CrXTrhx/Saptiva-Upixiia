@@ -163,7 +163,8 @@ export type EstadoDocumento =
   | "VALIDATED"
   | "REJECTED"
   | "EXPIRED"
-  | "REPLACED";
+  | "REPLACED"
+  | "DISCARDED";
 
 export const ESTADO_DOCUMENTO_LABELS: Record<EstadoDocumento, string> = {
   PROCESSING: "Procesando",
@@ -173,6 +174,7 @@ export const ESTADO_DOCUMENTO_LABELS: Record<EstadoDocumento, string> = {
   REJECTED: "Rechazado",
   EXPIRED: "Vencido",
   REPLACED: "Reemplazado",
+  DISCARDED: "Descartado",
 };
 
 // Motivos de rechazo del backend (RejectionReason).
@@ -213,6 +215,7 @@ export type Documento = {
   canal: Canal;
   remitente: string;
   fechaRecepcion: string;
+  fechaDescarte?: string | null;
   datosExtraidos?: Record<string, string>;
   motivoRechazo?: MotivoRechazo;
   rechazoAutomatico?: boolean;
@@ -253,6 +256,8 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   DOCUMENT_AUTO_REJECTED: "Rechazo automático",
   AUTO_REJECT_REVERTED: "Rechazo revertido",
   DOCUMENT_REPLACED: "Documento reemplazado",
+  DOCUMENT_DISCARDED: "Documento descartado",
+  DOCUMENT_RESTORED: "Documento restaurado",
   REMINDER_SENT: "Recordatorio enviado",
   INSTRUCTIONS_RESENT: "Instrucciones reenviadas",
   NOTE_ADDED: "Nota agregada",
@@ -293,6 +298,7 @@ export type ExpedienteDetalle = {
   };
   checklist: ChecklistItem[];
   documentos: Documento[];
+  descartados: Documento[];
   nextSteps: NextStep[];
   historial: Evento[];
   notas: Nota[];

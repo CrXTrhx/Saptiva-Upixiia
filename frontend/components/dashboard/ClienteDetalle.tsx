@@ -456,24 +456,29 @@ export default function ClienteDetalle({
               </button>
             </div>
 
+            {/* 4.1 LIMPIAR FILTROS — fila propia debajo de los filtros, alineada a la
+                derecha (bajo los selects), con espacio siempre reservado (visibility)
+                para que no mueva nada al aparecer/desaparecer */}
+            <div className="flex justify-end mb-2" style={{ visibility: hasFilters ? "visible" : "hidden" }}>
+              <button
+                type="button"
+                onClick={limpiarFiltros}
+                tabIndex={hasFilters ? 0 : -1}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-medium cursor-pointer transition-colors"
+                style={{ backgroundColor: COLOR.dangerBg, border: `1px solid ${COLOR.danger}`, color: COLOR.dangerText }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#FECACA")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = COLOR.dangerBg)}
+              >
+                <X size={12} /> Limpiar filtros
+              </button>
+            </div>
+
             {/* 5. LÍNEA DE RESULTADOS */}
             <div className="flex items-center justify-between mb-3 mt-3">
               <span className="text-[12px]" style={{ color: COLOR.muted }}>
                 {filtrados.length} de {stats.total} expedientes
                 {hasFilters ? " (filtrado)" : ""}
               </span>
-              {hasFilters && (
-                <button
-                  type="button"
-                  onClick={limpiarFiltros}
-                  className="text-[11px] cursor-pointer transition-colors"
-                  style={{ color: COLOR.muted2 }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = COLOR.text)}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = COLOR.muted2)}
-                >
-                  ✕ Limpiar filtros
-                </button>
-              )}
             </div>
 
             {/* 6. TABLA */}

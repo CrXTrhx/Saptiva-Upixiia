@@ -14,6 +14,7 @@ import {
 } from "@/lib/types";
 import { statusColorMap } from "@/lib/status";
 import { Button } from "@/components/ui/Button";
+import { X } from "lucide-react";
 import Link from "next/link";
 
 type FechaPreset = "hoy" | "7dias" | "30dias";
@@ -45,7 +46,20 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchLocal]);
 
+  const hasFilters = !!(
+    searchLocal ||
+    query.estado ||
+    query.rangoFecha ||
+    query.documentoFaltante
+  );
+
+  function limpiarFiltros() {
+    setSearchLocal("");
+    onChange({});
+  }
+
   return (
+    <div className="flex flex-col gap-2">
     <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
       <Link href="/nueva-venta">
         <Button className="whitespace-nowrap shrink-0">+ Nueva venta</Button>
@@ -138,6 +152,24 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
           </option>
         ))}
       </select>
+    </div>
+
+      {/* Limpiar filtros — fila propia debajo de los filtros, alineada a la derecha
+          (bajo los selects), con espacio siempre reservado (visibility) para que no
+          mueva nada al aparecer/desaparecer */}
+      <div className="flex justify-end" style={{ visibility: hasFilters ? "visible" : "hidden" }}>
+        <button
+          type="button"
+          onClick={limpiarFiltros}
+          tabIndex={hasFilters ? 0 : -1}
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors"
+          style={{ backgroundColor: "#FEE2E2", border: "1px solid #EF4444", color: "#B91C1C" }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#FECACA")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#FEE2E2")}
+        >
+          <X size={12} /> Limpiar filtros
+        </button>
+      </div>
     </div>
   );
 }

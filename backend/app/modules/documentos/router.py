@@ -85,6 +85,7 @@ def validar(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.validar_documento(db, doc, user)
+    db.commit()  # persiste el cambio antes de responder y antes de la tarea en segundo plano
     # Agenda el correo resumen (digest) en segundo plano. Se agrupan las validaciones/
     # rechazos de la misma rafaga en un solo correo para no hacer spam al cliente.
     background_tasks.add_task(
@@ -103,6 +104,7 @@ def rechazar(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.rechazar_documento(db, doc, body.categoria, body.texto, user)
+    db.commit()  # persiste el cambio antes de responder y antes de la tarea en segundo plano
     # Agenda el correo resumen (digest) en segundo plano. Se agrupan las validaciones/
     # rechazos de la misma rafaga en un solo correo para no hacer spam al cliente.
     background_tasks.add_task(
@@ -119,6 +121,31 @@ def revertir_rechazo(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     service.revertir_rechazo(db, doc, user)
+    db.commit()  # persiste el cambio antes de responder (evita que el polling lea estado viejo)
+    return serializers.serialize_documento(db, doc)
+
+
+@router.patch("/documentos/{doc_id}/descartar")
+def descartar(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    doc = service.get_doc_or_404(db, doc_id)
+    service.descartar_documento(db, doc, user)
+    db.commit()  # persiste el cambio antes de responder (evita que el polling lea estado viejo)
+    return serializers.serialize_documento(db, doc)
+
+
+@router.patch("/documentos/{doc_id}/restaurar-descartado")
+def restaurar_descartado(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    doc = service.get_doc_or_404(db, doc_id)
+    service.restaurar_descartado(db, doc, user)
+    db.commit()  # persiste el cambio antes de responder (evita que el polling lea estado viejo)
     return serializers.serialize_documento(db, doc)
 
 
@@ -155,4 +182,5 @@ def restaurar_version(
 ):
     doc = service.get_doc_or_404(db, doc_id)
     restaurado = service.restaurar_version(db, doc, user)
+    db.commit()  # persiste el cambio antes de responder (evita que el polling lea estado viejo)
     return serializers.serialize_documento(db, restaurado)

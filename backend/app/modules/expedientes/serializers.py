@@ -281,6 +281,7 @@ def serialize_documento(
         "canal": doc.channel_code,
         "remitente": doc.sender or "",
         "fechaRecepcion": iso(doc.reception_at),
+        "fechaDescarte": iso(doc.discarded_at) if doc.discarded_at else None,
         "datosExtraidos": doc.extracted_data or None,
         "motivoRechazo": motivo,
         "rechazoAutomatico": bool(doc.is_auto_rejected),
@@ -353,9 +354,22 @@ def serialize_detalle(db: Session, case: CaseFile) -> dict:
             .where(
                 Document.case_file_id == case.id,
                 Document.active_flag == 1,
-                Document.status_code != DocStatus.REPLACED,  # reemplazados van anidados
+                # reemplazados van anidados; descartados van en su propia lista
+                Document.status_code.notin_([DocStatus.REPLACED, DocStatus.DISCARDED]),
             )
             .order_by(Document.reception_at.desc())
+        ).scalars()
+    )
+
+    descartados = list(
+        db.execute(
+            select(Document)
+            .where(
+                Document.case_file_id == case.id,
+                Document.active_flag == 1,
+                Document.status_code == DocStatus.DISCARDED,
+            )
+            .order_by(Document.discarded_at.desc())
         ).scalars()
     )
 
@@ -404,6 +418,7 @@ def serialize_detalle(db: Session, case: CaseFile) -> dict:
         "expediente": base,
         "checklist": [serialize_checklist_item(i) for i in checklist],
         "documentos": [serialize_documento(db, d, prev_map=prev_map) for d in docs],
+        "descartados": [serialize_documento(db, d, with_version=False) for d in descartados],
         "nextSteps": [serialize_next_step(s) for s in ns.pending_steps(db, case.id)],
         "historial": [serialize_evento(e) for e in eventos],
         "notas": [serialize_nota(db, n, autor_map=autor_map) for n in notas],

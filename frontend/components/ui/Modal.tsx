@@ -11,6 +11,11 @@ type ModalProps = {
   title: string;
   children: ReactNode;
   maxWidth?: string;
+  /** Clase de z-index del overlay. Sube esto cuando el modal puede abrirse por
+   * encima de otro modal ya abierto (p. ej. una previsualización lanzada desde
+   * dentro de otro modal), para que quede siempre arriba sin depender del orden
+   * de montaje en el DOM. */
+  zIndexClass?: string;
 };
 
 export function Modal({
@@ -19,6 +24,7 @@ export function Modal({
   title,
   children,
   maxWidth = "max-w-lg",
+  zIndexClass = "z-50",
 }: ModalProps) {
   const reduceMotion = useReducedMotion();
 
@@ -35,7 +41,7 @@ export function Modal({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center"
+          className={`fixed inset-0 ${zIndexClass} flex items-center justify-center`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

@@ -300,6 +300,97 @@ def revertir_rechazo(db: Session, doc: Document, user: AppUser) -> Document:
     return doc
 
 
+def descartar_documento(db: Session, doc: Document, user: AppUser) -> Document:
+    """Descarta un documento rechazado: sale del flujo activo pero se conserva.
+
+    Solo aplica a documentos en estado REJECTED. El documento pasa a DISCARDED y se
+    registra `discarded_at`; si el item del checklist lo apuntaba, se libera para que
+    el tipo vuelva a quedar pendiente.
+    """
+    if doc.status_code != DocStatus.REJECTED:
+        raise ConflictError("Solo se pueden descartar documentos rechazados")
+    doc.status_code = DocStatus.DISCARDED
+    doc.discarded_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
+
+    doc_type = doc.declared_type_code or doc.detected_type_code
+    item = _checklist_item(db, doc.case_file_id, doc_type)
+    if item and item.current_document_id == doc.id:
+        item.current_document_id = None
+        if item.status_code != ChecklistStatus.VALIDATED:
+            item.status_code = ChecklistStatus.PENDING
+        db.flush()
+
+    case = db.get(CaseFile, doc.case_file_id)
+    registrar_evento(
+        db, case.id, EventType.DOCUMENT_DISCARDED,
+        f"Documento {doc_type or ''} descartado por {user.full_name}",
+        actor=user.email, actor_user_id=user.id,
+    )
+    ns.recompute(db, case)
+    return doc
+
+
+def restaurar_descartado(db: Session, doc: Document, user: AppUser) -> Document:
+    """Restaura un documento descartado: vuelve a 'rechazado' (inverso de descartar).
+
+    Conserva el motivo de rechazo original para que el usuario pueda retomarlo
+    (revalidar, reemplazar, etc.). Si mientras tanto ya existe otro documento activo
+    del mismo tipo (p.ej. se subio uno nuevo despues de descartar este), el restaurado
+    lo REEMPLAZA en vez de duplicar el tipo: el activo pasa a REPLACED y queda como
+    "version anterior" del restaurado (mismo patron que reemplazar_documento).
+    """
+    if doc.status_code != DocStatus.DISCARDED:
+        raise ConflictError("El documento no esta descartado")
+
+    doc_type = doc.declared_type_code or doc.detected_type_code
+    es_tipo_checklist = bool(doc_type) and doc_type != DocType.OTHER
+
+    activo = None
+    if es_tipo_checklist:
+        otros = db.execute(
+            select(Document).where(
+                Document.case_file_id == doc.case_file_id,
+                Document.id != doc.id,
+                Document.active_flag == 1,
+                Document.status_code.notin_([DocStatus.REPLACED, DocStatus.DISCARDED]),
+            )
+        ).scalars()
+        activo = next(
+            (d for d in otros if (d.declared_type_code or d.detected_type_code) == doc_type),
+            None,
+        )
+
+    if activo:
+        activo.status_code = DocStatus.REPLACED
+        activo.replaced_by_id = doc.id
+        db.flush()
+
+    doc.status_code = DocStatus.REJECTED
+    doc.discarded_at = None
+    db.flush()
+
+    item = _checklist_item(db, doc.case_file_id, doc_type)
+    if item:
+        # El doc restaurado queda REJECTED, igual que rechazar_documento: sin
+        # "documento actual" hasta que se valide/reemplace de nuevo.
+        item.status_code = ChecklistStatus.REJECTED
+        item.current_document_id = None
+        db.flush()
+
+    case = db.get(CaseFile, doc.case_file_id)
+    descripcion = f"Documento {doc_type or ''} restaurado desde descartados por {user.full_name}"
+    if activo:
+        descripcion += ", reemplazo al documento activo del mismo tipo"
+    registrar_evento(
+        db, case.id, EventType.DOCUMENT_RESTORED,
+        descripcion,
+        actor=user.email, actor_user_id=user.id,
+    )
+    ns.recompute(db, case)
+    return doc
+
+
 def reemplazar_documento(
     db: Session,
     doc: Document,
