@@ -1,3 +1,15 @@
 .claude/
 CLAUDE.md
 AGENTS.md
+
+# Secretos y variables de entorno (nunca subir credenciales reales).
+# Los archivos *.env.example SI se versionan (no terminan en ".env").
+.env
+**/.env
+.env.local
+**/.env.local
+
+# Credenciales de service accounts (Google Document AI, etc.).
+*-service-account.json
+**/*-service-account.json
+google-credentials.json

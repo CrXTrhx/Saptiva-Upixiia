@@ -35,7 +35,12 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
 def decode_access_token(token: str) -> dict | None:
     try:
         return jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            token,
+            settings.jwt_secret,
+            # Solo el algoritmo configurado (HS256): evita confusion/downgrade a "none".
+            algorithms=[settings.jwt_algorithm],
+            # Rechaza tokens sin caducidad/emision/sujeto (no se aceptan tokens sin exp).
+            options={"require": ["exp", "iat", "sub"]},
         )
     except jwt.PyJWTError:
         return None

@@ -11,6 +11,10 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    # Entorno de ejecucion: "development" | "production". En production se
+    # deshabilita la documentacion interactiva (/docs, /redoc, /openapi.json).
+    environment: str = "development"
+
     # Base de datos
     database_url: str = "postgresql://localhost/neondb"
 

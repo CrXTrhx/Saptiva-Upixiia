@@ -10,7 +10,17 @@ from app.core.db import ping
 from app.core.errors import register_error_handlers
 from app.integrations.storage import LOCAL_DIR
 
-app = FastAPI(title="Saptiva AML API", version="0.1.0")
+# En produccion se ocultan los esquemas/documentacion interactiva para no exponer
+# la superficie de la API; en desarrollo siguen disponibles en /docs.
+_docs_enabled = settings.environment.strip().lower() != "production"
+
+app = FastAPI(
+    title="Saptiva AML API",
+    version="0.1.0",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 app.add_middleware(
     CORSMiddleware,

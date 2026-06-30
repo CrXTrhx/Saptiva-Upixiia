@@ -17,8 +17,26 @@ router = APIRouter(tags=["documentos"])
 
 _MAX_BYTES = 15 * 1024 * 1024  # 15 MB
 
+# Solo se aceptan PDF e imagenes (documentos de identidad / comprobantes). Bloquea
+# subir HTML/SVG/ejecutables que podrian servirse luego desde el storage.
+_ALLOWED_MIME = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+    "image/tiff",
+}
+
 
 def _read_upload(file: UploadFile) -> bytes:
+    mime = (file.content_type or "").split(";")[0].strip().lower()
+    if mime not in _ALLOWED_MIME:
+        raise ValidationError(
+            "Tipo de archivo no permitido. Sube un PDF o una imagen "
+            "(JPG, PNG, WEBP, HEIC o TIFF)."
+        )
     content = file.file.read()
     if not content:
         raise ValidationError("El archivo esta vacio")

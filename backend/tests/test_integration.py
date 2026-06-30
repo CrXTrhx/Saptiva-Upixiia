@@ -6,14 +6,40 @@ rechazo, catalogos).
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import time
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 from app.seed import seed_admin
+
+# Secreto compartido de prueba para los webhooks (ahora exigen firma HMAC fail-closed).
+_WH_SECRET = "test-webhook-secret"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _configurar_secretos_webhook():
+    """Los webhooks validan la firma con estos secretos; los fijamos para las pruebas."""
+    settings.sinch_webhook_secret = _WH_SECRET
+    settings.email_webhook_secret = _WH_SECRET
+    yield
+
+
+def _post_whatsapp(client: TestClient, payload: dict, *, firmar: bool = True):
+    """POST firmado a /webhooks/whatsapp: la firma es HMAC-SHA256 del cuerpo crudo."""
+    body = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if firmar:
+        headers["X-Sinch-Signature"] = hmac.new(
+            _WH_SECRET.encode("utf-8"), body, hashlib.sha256
+        ).hexdigest()
+    return client.post("/api/webhooks/whatsapp", content=body, headers=headers)
 
 
 @pytest.fixture(scope="module")
@@ -215,7 +241,7 @@ def test_flujo_completo_y_llm(client, auth):
 
 def test_huerfano_y_asignacion(client, auth):
     # llega por whatsapp sin codigo -> huerfano
-    r = client.post("/api/webhooks/whatsapp", json={
+    r = _post_whatsapp(client, {
         "sender": "+525551112233", "text": "sin codigo", "fileName": "ine_x.jpg",
         "mimeType": "image/jpeg",
     })
@@ -230,12 +256,32 @@ def test_huerfano_y_asignacion(client, auth):
 
 def _huerfano_whatsapp(client, file_name: str) -> str:
     """Crea un huerfano por WhatsApp (sin codigo) y devuelve su id."""
-    r = client.post("/api/webhooks/whatsapp", json={
+    r = _post_whatsapp(client, {
         "sender": "+525550000000", "text": "sin codigo",
         "fileName": file_name, "mimeType": "image/jpeg",
     })
     assert r.json()["status"] == "orphan", r.text
     return r.json()["orphanId"]
+
+
+def test_webhook_sin_firma_es_401(client):
+    # Sin la cabecera de firma HMAC el webhook se rechaza (fail-closed).
+    r = _post_whatsapp(
+        client,
+        {"sender": "+525550000000", "text": "EXP-2026-BLN00001-AAAA"},
+        firmar=False,
+    )
+    assert r.status_code == 401, r.text
+
+
+def test_webhook_firma_invalida_es_401(client):
+    body = json.dumps({"sender": "x", "text": "hola"}).encode("utf-8")
+    r = client.post(
+        "/api/webhooks/whatsapp",
+        content=body,
+        headers={"Content-Type": "application/json", "X-Sinch-Signature": "deadbeef"},
+    )
+    assert r.status_code == 401, r.text
 
 
 def test_documento_entrante_reemplaza_card_del_mismo_tipo(client, auth):

@@ -49,13 +49,17 @@ def _content(payload: InboundPayload, default_name: str) -> tuple[bytes, str, st
 
 
 @router.post("/webhooks/whatsapp")
-def whatsapp_webhook(
+async def whatsapp_webhook(
+    request: Request,
     payload: InboundPayload,
     db: Session = Depends(get_db),
     x_sinch_signature: str | None = Header(default=None),
 ):
+    # La firma se valida sobre el cuerpo CRUDO del POST (mismos bytes que firmo el
+    # emisor). FastAPI ya cacheo el body al parsear `payload`, asi que request.body()
+    # devuelve esos mismos bytes sin volver a leer el stream.
     if not sinch.verify_webhook_signature(
-        settings.sinch_webhook_secret, x_sinch_signature, b""
+        settings.sinch_webhook_secret, x_sinch_signature, await request.body()
     ):
         raise UnauthorizedError("Firma de webhook invalida")
     content, name, mime = _content(payload, "documento_whatsapp.pdf")
@@ -69,13 +73,14 @@ def whatsapp_webhook(
 
 
 @router.post("/webhooks/email")
-def email_webhook(
+async def email_webhook(
+    request: Request,
     payload: InboundPayload,
     db: Session = Depends(get_db),
     x_email_signature: str | None = Header(default=None),
 ):
     if not email_client.verify_webhook_signature(
-        settings.email_webhook_secret, x_email_signature, b""
+        settings.email_webhook_secret, x_email_signature, await request.body()
     ):
         raise UnauthorizedError("Firma de webhook invalida")
     content, name, mime = _content(payload, "documento_correo.pdf")

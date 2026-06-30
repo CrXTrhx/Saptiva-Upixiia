@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import time
 
 import httpx
 
@@ -19,32 +20,54 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Ventana de frescura para el timestamp firmado de Mailgun (anti-replay). Las entregas
+# normales llegan en segundos; solo se rechazan firmas claramente viejas o del futuro.
+_MAILGUN_MAX_SKEW_SECONDS = 5 * 60
+
 
 def _mailgun_configured() -> bool:
     return bool(settings.mailgun_api_key and settings.mailgun_domain)
 
 
 def verify_webhook_signature(secret: str, signature: str | None, body: bytes) -> bool:
-    """Compatibilidad con el webhook JSON simplificado (no Mailgun). Stub: confia."""
-    return True
+    """Valida la firma HMAC-SHA256 del webhook JSON simplificado. FAIL-CLOSED.
+
+    El emisor firma el cuerpo CRUDO del POST con el secreto compartido
+    (EMAIL_WEBHOOK_SECRET). Se RECHAZA si no hay secreto, si falta la firma o si no
+    coincide. Se acepta el prefijo opcional `sha256=`.
+    """
+    if not secret or not signature:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    candidate = signature.split("=", 1)[1] if signature.startswith("sha256=") else signature
+    return hmac.compare_digest(expected, candidate.strip())
 
 
 def verify_mailgun_signature(
     timestamp: str | None, token: str | None, signature: str | None
 ) -> bool:
-    """Valida la firma de un webhook entrante de Mailgun.
+    """Valida la firma de un webhook entrante de Mailgun. FAIL-CLOSED.
 
     Mailgun firma asi:  HMAC-SHA256(key=signing_key, msg=timestamp + token).
-    Si no se configuro la signing key se OMITE la validacion (se asume confiable),
-    util para las primeras pruebas; en produccion conviene configurarla.
+    Si no se configuro la signing key se RECHAZA (antes se omitia la validacion, lo
+    que dejaba el webhook abierto). Ademas se exige que el timestamp este dentro de
+    una ventana corta para mitigar replays.
     """
     signing_key = settings.mailgun_signing_key or settings.mailgun_api_key
     if not signing_key:
-        logger.warning(
-            "MAILGUN_SIGNING_KEY no configurada; se omite la verificacion de firma."
+        logger.error(
+            "MAILGUN_SIGNING_KEY no configurada; se rechaza el webhook entrante."
         )
-        return True
+        return False
     if not (timestamp and token and signature):
+        return False
+    # Anti-replay: el timestamp (epoch en segundos) no debe estar fuera de la ventana.
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    if abs(time.time() - ts) > _MAILGUN_MAX_SKEW_SECONDS:
+        logger.warning("Webhook de Mailgun rechazado: timestamp fuera de la ventana.")
         return False
     expected = hmac.new(
         key=signing_key.encode("utf-8"),
