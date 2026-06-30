@@ -143,7 +143,9 @@ def _auto_version(ctx: PipelineContext, doc_type: str) -> None:
         Document.case_file_id == ctx.case.id,
         Document.id != ctx.document.id,
         Document.active_flag == 1,
-        Document.status_code != DocStatus.REPLACED,
+        # DISCARDED ya esta fuera del flujo (el usuario lo saco a proposito); no debe
+        # auto-versionarse como si fuera la version activa que el entrante reemplaza.
+        Document.status_code.notin_([DocStatus.REPLACED, DocStatus.DISCARDED]),
         Document.file_purged_at.is_(None),
         func.coalesce(Document.declared_type_code, Document.detected_type_code) == doc_type,
     ]

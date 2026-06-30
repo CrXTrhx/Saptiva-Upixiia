@@ -32,6 +32,7 @@ class DocStatus:
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
     REPLACED = "REPLACED"
+    DISCARDED = "DISCARDED"  # rechazado y descartado por el usuario (fuera del flujo, se conserva)
 
 
 class ChecklistStatus:
@@ -96,6 +97,8 @@ class EventType:
     DOCUMENT_AUTO_REJECTED = "DOCUMENT_AUTO_REJECTED"
     AUTO_REJECT_REVERTED = "AUTO_REJECT_REVERTED"
     DOCUMENT_REPLACED = "DOCUMENT_REPLACED"
+    DOCUMENT_DISCARDED = "DOCUMENT_DISCARDED"
+    DOCUMENT_RESTORED = "DOCUMENT_RESTORED"
     REMINDER_SENT = "REMINDER_SENT"
     INSTRUCTIONS_RESENT = "INSTRUCTIONS_RESENT"
     # Correo resumen (digest) enviado al cliente tras una rafaga de validaciones/rechazos
@@ -132,6 +135,8 @@ EVENT_TONE = {
     EventType.DOCUMENT_AUTO_REJECTED: "warn",
     EventType.AUTO_REJECT_REVERTED: "neutral",
     EventType.DOCUMENT_REPLACED: "neutral",
+    EventType.DOCUMENT_DISCARDED: "neutral",
+    EventType.DOCUMENT_RESTORED: "neutral",
     EventType.REMINDER_SENT: "neutral",
     EventType.INSTRUCTIONS_RESENT: "neutral",
     EventType.CLIENT_NOTIFIED_DIGEST: "ok",

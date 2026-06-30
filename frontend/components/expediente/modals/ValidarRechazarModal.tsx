@@ -187,10 +187,12 @@ export default function ValidarRechazarModal({
     return Number.isFinite(n) ? n : null;
   }, [documento]);
 
-  const rejectComentarioObligatorio = rejectReason === "OTHER";
+  // El backend exige texto (min 1 char) en todo rechazo; pedimos 8 para forzar un
+  // motivo útil para el cliente, sin importar la categoría elegida.
+  const MIN_COMENTARIO_RECHAZO = 8;
   const rejectValido =
     rejectReason !== "" &&
-    (!rejectComentarioObligatorio || rejectComment.trim().length > 0);
+    rejectComment.trim().length >= MIN_COMENTARIO_RECHAZO;
 
   function updateCampo(key: string, value: string) {
     setEditedExtractedData((prev) => ({ ...prev, [key]: value }));
@@ -405,7 +407,7 @@ export default function ValidarRechazarModal({
 
                       <label className="mb-1 mt-3 block text-[11px] font-medium" style={{ color: "#5C5957" }}>
                         Describe brevemente qué debe corregir el cliente
-                        {rejectComentarioObligatorio && <span style={{ color: "#9C4B2E" }}> *</span>}
+                        <span style={{ color: "#9C4B2E" }}> *</span>
                       </label>
                       <textarea
                         rows={3}
@@ -417,6 +419,12 @@ export default function ValidarRechazarModal({
                         onFocus={(e) => (e.currentTarget.style.borderColor = "#F19B42")}
                         onBlur={(e) => (e.currentTarget.style.borderColor = "#E5DED6")}
                       />
+                      <p
+                        className="mt-1 text-right text-[10px]"
+                        style={{ color: rejectComment.trim().length >= MIN_COMENTARIO_RECHAZO ? "#8FA585" : "#989396" }}
+                      >
+                        {rejectComment.trim().length}/{MIN_COMENTARIO_RECHAZO} caracteres mínimo
+                      </p>
                     </div>
                   </motion.div>
                 )}

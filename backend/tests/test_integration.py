@@ -209,6 +209,82 @@ def test_rechazo_automatico_y_revertir(client, auth):
     assert r.status_code == 200 and r.json()["estado"] == "RECEIVED", r.text
 
 
+def test_descartar_y_restaurar_documento(client, auth):
+    exp = _crear(client, auth)
+    eid = exp["id"]
+    # Sube un documento ilegible -> el analisis automatico lo deja en REJECTED.
+    files = {"file": ("comprobante_ilegible.jpg", b"x", "image/jpeg")}
+    r = client.post(f"/api/expedientes/{eid}/documentos", headers=auth,
+                    data={"tipo": "PROOF_OF_ADDRESS"}, files=files)
+    assert r.status_code == 201, r.text
+    doc_id = r.json()["id"]
+    doc = _esperar_estado_doc(client, auth, eid, doc_id)
+    assert doc and doc["estado"] == "REJECTED", doc
+
+    # Descartar: sale de la lista activa y entra en "descartados".
+    r = client.patch(f"/api/documentos/{doc_id}/descartar", headers=auth)
+    assert r.status_code == 200 and r.json()["estado"] == "DISCARDED", r.text
+    det = client.get(f"/api/expedientes/{eid}/detalle", headers=auth).json()
+    assert all(d["id"] != doc_id for d in det["documentos"]), "no debe seguir en activos"
+    assert any(d["id"] == doc_id for d in det["descartados"]), "debe estar en descartados"
+
+    # Solo se descartan documentos rechazados: descartar de nuevo es conflicto.
+    r = client.patch(f"/api/documentos/{doc_id}/descartar", headers=auth)
+    assert r.status_code == 409, r.text
+
+    # Restaurar: vuelve a REJECTED y reaparece en activos.
+    r = client.patch(f"/api/documentos/{doc_id}/restaurar-descartado", headers=auth)
+    assert r.status_code == 200 and r.json()["estado"] == "REJECTED", r.text
+    det = client.get(f"/api/expedientes/{eid}/detalle", headers=auth).json()
+    assert any(d["id"] == doc_id for d in det["documentos"]), "debe volver a activos"
+    assert all(d["id"] != doc_id for d in det["descartados"]), "ya no en descartados"
+
+
+def test_restaurar_descartado_reemplaza_documento_activo_del_mismo_tipo(client, auth):
+    exp = _crear(client, auth)
+    eid = exp["id"]
+
+    # 1) Sube un INE ilegible -> queda REJECTED -> lo descarta.
+    files = {"file": ("ine_ilegible.jpg", b"x", "image/jpeg")}
+    r = client.post(f"/api/expedientes/{eid}/documentos", headers=auth,
+                    data={"tipo": "OFFICIAL_ID"}, files=files)
+    assert r.status_code == 201, r.text
+    viejo_id = r.json()["id"]
+    doc = _esperar_estado_doc(client, auth, eid, viejo_id)
+    assert doc and doc["estado"] == "REJECTED", doc
+    r = client.patch(f"/api/documentos/{viejo_id}/descartar", headers=auth)
+    assert r.status_code == 200, r.text
+
+    # 2) Mientras tanto, sube un INE nuevo y bueno -> queda activo (VALIDATED).
+    files2 = {"file": ("ine.jpg", b"x", "image/jpeg")}
+    r = client.post(f"/api/expedientes/{eid}/documentos", headers=auth,
+                    data={"tipo": "OFFICIAL_ID"}, files=files2)
+    assert r.status_code == 201, r.text
+    nuevo_activo_id = r.json()["id"]
+    doc2 = _esperar_estado_doc(client, auth, eid, nuevo_activo_id)
+    assert doc2 and doc2["estado"] == "RECEIVED", doc2
+    r = client.patch(f"/api/documentos/{nuevo_activo_id}/validar", headers=auth)
+    assert r.status_code == 200 and r.json()["estado"] == "VALIDATED", r.text
+
+    # 3) Restaurar el INE descartado: NO debe duplicar el tipo. El que estaba activo
+    #    (nuevo_activo_id) debe pasar a REPLACED y quedar como "version anterior" del
+    #    restaurado; el checklist solo debe tener UN documento OFFICIAL_ID activo.
+    r = client.patch(f"/api/documentos/{viejo_id}/restaurar-descartado", headers=auth)
+    assert r.status_code == 200 and r.json()["estado"] == "REJECTED", r.text
+
+    det = client.get(f"/api/expedientes/{eid}/detalle", headers=auth).json()
+    activos_ine = [d for d in det["documentos"] if d["tipo"] == "OFFICIAL_ID"]
+    assert len(activos_ine) == 1, f"no debe duplicar el tipo: {activos_ine}"
+    assert activos_ine[0]["id"] == viejo_id
+    assert activos_ine[0]["estado"] == "REJECTED"
+    assert activos_ine[0]["versionAnterior"] is not None
+    assert activos_ine[0]["versionAnterior"]["id"] == nuevo_activo_id
+    assert activos_ine[0]["versionAnterior"]["estado"] == "REPLACED"
+
+    checklist_ine = next(c for c in det["checklist"] if c["tipo"] == "OFFICIAL_ID")
+    assert checklist_ine["estado"] == "REJECTED"
+
+
 def test_flujo_completo_y_llm(client, auth):
     exp = _crear(client, auth, monto=700000, tipo="blindaje")
     eid = exp["id"]

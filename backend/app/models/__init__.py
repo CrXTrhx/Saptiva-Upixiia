@@ -118,6 +118,9 @@ class Document(Base):
     # Momento en que el cron borro el archivo de R2 (versiones reemplazadas viejas).
     # La fila se conserva como auditoria; si no es None, file_url ya no existe en R2.
     file_purged_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # Momento en que el usuario descarto el documento (status DISCARDED). Se conserva
+    # para auditoria y para listarlo en "Descartados"; None si esta en el flujo activo.
+    discarded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     reception_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())
     validated_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     validated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
