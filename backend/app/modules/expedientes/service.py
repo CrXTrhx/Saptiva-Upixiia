@@ -411,8 +411,6 @@ def restaurar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
     if case.status_code != CaseStatus.CANCELLED:
         raise ConflictError("Solo se puede restaurar un expediente cancelado")
 
-    # Recupera el estado que tenia el expediente justo antes de cancelarse.
-    # Al cancelar, transition() registra STATUS_CHANGED con metadata {"from","to"}.
     eventos = db.execute(
         select(CaseEvent)
         .where(
@@ -433,9 +431,11 @@ def restaurar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
     if estado_previo not in OPEN_STATUSES:
         estado_previo = CaseStatus.RECEIVING
 
+    # Importante: limpiar el motivo y cambiar el estado deben aplicarse en el MISMO
+    # flush. La tabla tiene un CHECK (ck_case_cancel_reason) que exige motivo cuando
+    # el estado es CANCELLED; si limpiamos el motivo antes de salir de CANCELLED,
+    # se viola la restriccion. transition() hace el flush con ambos cambios juntos.
     case.cancellation_reason = None
-    db.flush()
-    # transition() ya registra el evento STATUS_CHANGED con el from/to correcto.
     transition(
         db,
         case,

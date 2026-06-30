@@ -1078,9 +1078,10 @@ function DetalleContent() {
       const fresh = await expedientesService.getExpedienteDetalle(id);
       if (fresh) setDetalle(fresh);
       showToast("Expediente restaurado");
-    } catch {
+    } catch (e) {
+      console.error("Error al restaurar expediente:", e);
       setDetalle(prev);
-      showToast("Error al restaurar expediente");
+      showToast(e instanceof Error ? e.message : "Error al restaurar expediente");
     } finally {
       setRestaurarExpedienteLoading(false);
     }

@@ -1,11 +1,12 @@
 """Endpoints de expedientes."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
+from app.core.errors import AppError
 from app.models import AppUser
 from app.modules.expedientes import serializers, service
 from app.modules.expedientes.schemas import (
@@ -173,7 +174,16 @@ def restaurar(
     user: AppUser = Depends(get_current_user),
 ):
     case = service.get_case_or_404(db, case_id)
-    service.restaurar(db, case, user)
+    try:
+        service.restaurar(db, case, user)
+    except AppError:
+        # NotFound/Conflict ya traen status y mensaje correctos.
+        raise
+    except Exception as exc:  # evita 500 opaco: expone la causa real
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se pudo restaurar el expediente: {exc}",
+        )
     return serializers.serialize_expediente(db, case)
 
 
