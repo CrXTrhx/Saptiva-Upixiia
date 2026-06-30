@@ -174,7 +174,7 @@ function ActionBtn({ icon: Icon, children, onClick, danger, disabled }: {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+      className="flex min-h-11 items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
       style={{
         border: `1px solid ${danger ? "#D88A6A" : "#E5DED6"}`,
         color: danger ? "#9C4B2E" : "#5C5957",
@@ -348,7 +348,7 @@ function ReenviarInstruccionesMenu({
         disabled={disabled || cargando}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+        className="flex min-h-11 items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
         style={{ border: "1px solid #E5DED6", color: "#5C5957" }}
         onMouseEnter={(e) => { if (!disabled && !cargando) e.currentTarget.style.borderColor = "#B5AFA9"; }}
         onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#E5DED6"; }}
@@ -878,8 +878,8 @@ function DetalleContent() {
   const pushNotif = useCallback(
     (titulo: string, tono: TonoEvento = "ok", descripcion?: string) => {
       const nid = "n-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
-      // Máximo 4 visibles: las más viejas salen por arriba.
-      setNotifs((prev) => [...prev.slice(-3), { id: nid, tono, titulo, descripcion }]);
+      // Máximo 2 visibles: al llegar una tercera, la más vieja se desvanece y sale.
+      setNotifs((prev) => [...prev.slice(-1), { id: nid, tono, titulo, descripcion }]);
     },
     [],
   );
@@ -1250,13 +1250,13 @@ function DetalleContent() {
   // ═══════════════════════════════════════
 
   if (dataStatus === "loading") {
-    return <div className="flex min-h-screen items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: "#F19B42", borderTopColor: "transparent" }} /></div>;
+    return <div className="flex min-h-dvh items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2" style={{ borderColor: "#F19B42", borderTopColor: "transparent" }} /></div>;
   }
   if (dataStatus === "notFound") {
-    return <div className="flex min-h-screen flex-col items-center justify-center gap-4"><p className="text-base font-medium" style={{ color: "#302F2D" }}>Expediente no encontrado</p><button onClick={() => router.push("/dashboard")} className="text-sm cursor-pointer hover:underline" style={{ color: "#F19B42" }}>Volver al Dashboard</button></div>;
+    return <div className="flex min-h-dvh flex-col items-center justify-center gap-4"><p className="text-base font-medium" style={{ color: "#302F2D" }}>Expediente no encontrado</p><button onClick={() => router.push("/dashboard")} className="text-sm cursor-pointer hover:underline" style={{ color: "#F19B42" }}>Volver al Dashboard</button></div>;
   }
   if (dataStatus === "error" || !exp) {
-    return <div className="flex min-h-screen flex-col items-center justify-center gap-4"><p className="text-base font-medium" style={{ color: "#302F2D" }}>Error al cargar el expediente</p><button onClick={() => window.location.reload()} className="text-sm cursor-pointer hover:underline" style={{ color: "#F19B42" }}>Reintentar</button></div>;
+    return <div className="flex min-h-dvh flex-col items-center justify-center gap-4"><p className="text-base font-medium" style={{ color: "#302F2D" }}>Error al cargar el expediente</p><button onClick={() => window.location.reload()} className="text-sm cursor-pointer hover:underline" style={{ color: "#F19B42" }}>Reintentar</button></div>;
   }
 
   const validadosCount = checklist.filter((c) => c.estado === "VALIDATED").length;
@@ -1268,16 +1268,16 @@ function DetalleContent() {
   // ═══════════════════════════════════════
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#F5F0EA", color: "#302F2D" }}>
+    <div className="min-h-dvh" style={{ backgroundColor: "#F5F0EA", color: "#302F2D" }}>
 
       {/* 1. HEADER */}
       <header className="sticky top-0 z-30" style={{ backgroundColor: "#F5F0EA", borderBottom: "1px solid #E5DED6" }}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3 text-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3 text-sm min-w-0">
             <button
               type="button"
               onClick={() => router.push("/dashboard")}
-              className="flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors"
+              className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#E5E7EB] bg-white px-2.5 sm:px-3.5 py-2 text-[12px] font-medium text-[#4B5563] transition-colors shrink-0"
               style={{ boxShadow: "0 1px 2px rgba(15,23,42,0.08)" }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = "#D1D5DB";
@@ -1290,17 +1290,17 @@ function DetalleContent() {
               aria-label="Volver al dashboard"
             >
               <ArrowLeft size={15} strokeWidth={1.75} />
-              <span>Dashboard</span>
-              <ChevronRight size={11} style={{ color: "#D1D5DB" }} />
+              <span className="hidden sm:inline">Dashboard</span>
+              <ChevronRight size={11} className="hidden sm:inline" style={{ color: "#D1D5DB" }} />
             </button>
-            <span className="flex items-center justify-center h-6 w-6 rounded-md text-[10px] font-bold text-white" style={{ backgroundColor: "#302F2D" }}>GE</span>
-            <span className="font-mono tabular-nums font-medium" style={{ color: "#302F2D" }}>{exp.codigo}</span>
+            <span className="hidden sm:flex items-center justify-center h-6 w-6 shrink-0 rounded-md text-[10px] font-bold text-white" style={{ backgroundColor: "#302F2D" }}>GE</span>
+            <span className="font-mono tabular-nums font-medium truncate" style={{ color: "#302F2D" }}>{exp.codigo}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <Badge cfg={estadoCfg} />
             <button
               onClick={() => setHistorialOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-2 sm:py-1.5 rounded-md cursor-pointer transition-colors"
               style={{
                 border: "1px solid #E5DED6",
                 backgroundColor: historialOpen ? "#302F2D" : "transparent",
@@ -1308,7 +1308,7 @@ function DetalleContent() {
               }}
             >
               <Clock size={12} strokeWidth={1.75} />
-              Historial
+              <span className="hidden sm:inline">Historial</span>
               {historial.length > 0 && (
                 <span className="text-[9px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center" style={{ backgroundColor: historialOpen ? "rgba(255,255,255,0.2)" : "#F0EBE5", color: historialOpen ? "#FFFFFF" : "#5C5957" }}>
                   {historial.length}
@@ -1319,7 +1319,7 @@ function DetalleContent() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
         {/* BANNER CANCELADO */}
         {esCancelado && (
@@ -1332,15 +1332,15 @@ function DetalleContent() {
         )}
 
         {/* 2. BLOQUE A — FICHA */}
-        <Card className="p-6" hover={false} delay={0.02}>
-          <div className="flex items-start justify-between flex-wrap gap-4">
-            <div className="flex-1 min-w-[280px]">
+        <Card className="p-4 sm:p-6" hover={false} delay={0.02}>
+          <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+            <div className="flex-1 sm:min-w-[280px]">
               <div className="flex items-center gap-3 flex-wrap mb-1">
-                <h1 className="text-2xl font-semibold tracking-tight font-mono tabular-nums" style={{ color: "#302F2D" }}>{exp.codigo}</h1>
+                <h1 className="text-xl sm:text-2xl font-semibold tracking-tight font-mono tabular-nums" style={{ color: "#302F2D" }}>{exp.codigo}</h1>
                 <Badge cfg={estadoCfg} />
               </div>
               <p className="text-base font-medium mb-4" style={{ color: "#302F2D" }}>{exp.clienteNombre}</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 sm:gap-x-8 gap-y-3">
                 <Dato icon={Phone} label="Teléfono" value={exp.clienteTelefono} />
                 <Dato icon={Mail} label="Correo" value={exp.clienteCorreo} />
                 <Dato label="RFC" value={exp.clienteRfc ?? "—"} mono />
@@ -1382,7 +1382,7 @@ function DetalleContent() {
                 </div>
               )}
             </div>
-            <div className="flex flex-col gap-2 items-stretch min-w-[180px]">
+            <div className="flex w-full flex-col gap-2 items-stretch sm:w-auto sm:min-w-[180px]">
               <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
               <ReenviarInstruccionesMenu
                 expediente={exp}
@@ -1396,7 +1396,7 @@ function DetalleContent() {
                 <button
                   onClick={handleRestaurarExpediente}
                   disabled={restaurarExpedienteLoading}
-                  className="flex items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                  className="flex min-h-11 items-center gap-2 text-[12px] font-medium px-3 py-2 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
                   style={{ backgroundColor: "#ECF0E8", color: "#536648", border: "1px solid #C7D8B3" }}
                   onMouseEnter={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#D8E6C7"; }}
                   onMouseLeave={(e) => { if (!restaurarExpedienteLoading) e.currentTarget.style.backgroundColor = "#ECF0E8"; }}
@@ -1418,7 +1418,7 @@ function DetalleContent() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           {/* 3a. CHECKLIST */}
-          <Card className="p-6" delay={0.06}>
+          <Card className="p-4 sm:p-6" delay={0.06}>
             <SectionTitle icon={Check}>Checklist de documentos</SectionTitle>
             <div className="space-y-2.5">
               {checklist.map((item) => {
@@ -1461,7 +1461,7 @@ function DetalleContent() {
           </Card>
 
           {/* 3b. NEXT STEPS */}
-          <Card className="p-6" delay={0.10}>
+          <Card className="p-4 sm:p-6" delay={0.10}>
             <SectionTitle icon={ArrowRight}>Next steps</SectionTitle>
             {nextSteps.length === 0 ? (
               <p className="text-[12px] text-center py-4" style={{ color: "#989396" }}>Sin pendientes</p>
@@ -1499,7 +1499,7 @@ function DetalleContent() {
               exit={{ opacity: 0, y: -4, scale: 0.99 }}
               transition={{ duration: 0.35, ease: EASE_OUT }}
             >
-              <Card className="p-6" hover={false}>
+              <Card className="p-4 sm:p-6" hover={false}>
                 <SectionTitle
                   icon={FileText}
                   right={
@@ -1523,7 +1523,7 @@ function DetalleContent() {
           <div className="lg:col-span-7 space-y-5">
 
             {/* BLOQUE D — DOCUMENTOS */}
-            <Card className="p-6" hover={false} delay={0.14}>
+            <Card className="p-4 sm:p-6" hover={false} delay={0.14}>
               <SectionTitle
                 icon={FileText}
                 right={
@@ -1570,7 +1570,7 @@ function DetalleContent() {
           <div className="lg:col-span-5 space-y-5">
 
             {/* BLOQUE G — ASISTENTE */}
-            <Card className="p-6" delay={0.16}>
+            <Card className="p-4 sm:p-6" delay={0.16}>
               <SectionTitle icon={Sparkles}>Asistente normativo</SectionTitle>
               <div className="space-y-2">
                 {["¿Hay que avisar al SAT?", "¿Se puede pagar en efectivo?"].map((q) => (
@@ -1591,7 +1591,7 @@ function DetalleContent() {
             </Card>
 
             {/* BLOQUE F — NOTAS */}
-            <Card className="p-6" hover={false} delay={0.20}>
+            <Card className="p-4 sm:p-6" hover={false} delay={0.20}>
               <SectionTitle icon={MessageSquare}>Notas internas</SectionTitle>
               <div className="mb-4">
                 <textarea
@@ -1641,7 +1641,7 @@ function DetalleContent() {
             </Card>
 
             {/* BLOQUE F.1 — DESCARTADOS (card separada, debajo de Notas internas) */}
-            <Card className="p-6" hover={false} delay={0.22}>
+            <Card className="p-4 sm:p-6" hover={false} delay={0.22}>
               <button
                 onClick={() => setDescartadosOpen(true)}
                 className="w-full flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-wider px-3 py-2 rounded-md cursor-pointer transition-colors"
@@ -1662,7 +1662,7 @@ function DetalleContent() {
         </div>
 
         {/* 6. BLOQUE H — VALIDACIÓN FINAL */}
-        <Card className="p-6" hover={false} delay={0.24}>
+        <Card className="p-4 sm:p-6" hover={false} delay={0.24}>
           <SectionTitle icon={Check}>Validación final</SectionTitle>
           {esCancelado ? (
             <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "#EAE7E6" }}>
@@ -1690,8 +1690,8 @@ function DetalleContent() {
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-6 flex-wrap">
-              <div className="flex-1 min-w-[260px]">
+            <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+              <div className="w-full sm:flex-1 sm:min-w-[260px]">
                 <p className="text-[13px] mb-2" style={{ color: "#302F2D" }}>Para marcar el expediente como validado, todos los documentos deben estar validados.</p>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-medium tabular-nums" style={{ color: "#5C5957" }}>{validadosCount}/4 documentos validados</span>
@@ -1708,7 +1708,7 @@ function DetalleContent() {
               <motion.button
                 onClick={handleMarcarCompleto}
                 disabled={!checklistCompleto}
-                className="flex items-center gap-2 text-sm font-medium px-6 py-3 rounded-md cursor-pointer disabled:cursor-not-allowed transition-colors"
+                className="flex w-full items-center justify-center gap-2 text-sm font-medium px-6 py-3 rounded-md cursor-pointer disabled:cursor-not-allowed transition-colors sm:w-auto"
                 style={{ backgroundColor: checklistCompleto ? "#F19B42" : "#EFECE9", color: checklistCompleto ? "#FFFFFF" : "#B5AFA9" }}
                 whileHover={checklistCompleto ? { scale: 1.01 } : undefined}
                 whileTap={checklistCompleto ? { scale: 0.98 } : undefined}
@@ -1751,7 +1751,7 @@ function DetalleContent() {
                     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "#F0EBE5", color: "#5C5957" }}>{historial.length}</span>
                   )}
                 </div>
-                <button onClick={() => setHistorialOpen(false)} className="w-7 h-7 flex items-center justify-center rounded-md cursor-pointer transition-colors" style={{ color: "#989396" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#FAF6F1"; e.currentTarget.style.color = "#302F2D"; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#989396"; }}>
+                <button onClick={() => setHistorialOpen(false)} aria-label="Cerrar historial" className="w-11 h-11 flex items-center justify-center rounded-md cursor-pointer transition-colors" style={{ color: "#989396" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#FAF6F1"; e.currentTarget.style.color = "#302F2D"; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#989396"; }}>
                   <X size={14} />
                 </button>
               </div>

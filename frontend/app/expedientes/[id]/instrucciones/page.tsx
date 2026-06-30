@@ -299,7 +299,7 @@ function InstruccionesContent() {
   // --- Loading / error states ---
   if (dataStatus === "notFound") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-4">
         <p className="text-base font-medium text-[var(--color-text)]">
           Expediente no encontrado
         </p>
@@ -318,7 +318,7 @@ function InstruccionesContent() {
 
   if (dataStatus === "error") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-4">
         <p className="text-base font-medium text-[var(--color-text)]">
           Error al cargar el expediente
         </p>
@@ -338,7 +338,7 @@ function InstruccionesContent() {
   const codigo = expediente?.codigo ?? "—";
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Entry animation overlay */}
       {!overlayExited && (
         <div
@@ -437,7 +437,7 @@ function InstruccionesContent() {
 
       {/* Show skeleton until revealed */}
       {!revealed && phase === "done" && (
-        <div className="flex min-h-screen items-center justify-center">
+        <div className="flex min-h-dvh items-center justify-center">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
         </div>
       )}
@@ -451,7 +451,7 @@ function InstruccionesContent() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4 }}
           >
-            <div className="mx-auto flex max-w-6xl items-center px-6 sm:px-8 py-4">
+            <div className="mx-auto flex max-w-6xl items-center px-4 sm:px-6 lg:px-8 py-4">
               <div className="flex items-center gap-3 text-sm">
                 <button
                   onClick={() => router.push("/dashboard")}
@@ -483,13 +483,13 @@ function InstruccionesContent() {
           </motion.header>
 
           {/* Content */}
-          <main className="mx-auto max-w-6xl px-6 sm:px-8 py-10">
+          <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-10">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Main column — 2/3 */}
               <div className="lg:col-span-2 flex flex-col gap-6">
                 {/* Confirmation card */}
                 <motion.div
-                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8"
+                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-8"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{
@@ -548,7 +548,7 @@ function InstruccionesContent() {
                   </div>
 
                   <motion.div
-                    className="rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border-inner)] p-5 grid grid-cols-2 gap-4"
+                    className="rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border-inner)] p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 gap-4"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.55 }}
@@ -586,7 +586,7 @@ function InstruccionesContent() {
 
                 {/* Message card */}
                 <motion.div
-                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-7"
+                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-7"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{
@@ -695,7 +695,7 @@ function InstruccionesContent() {
 
                 {/* Secondary actions */}
                 <motion.div
-                  className="flex items-center gap-4"
+                  className="flex flex-wrap items-center gap-3 sm:gap-4"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.85, duration: 0.4 }}
@@ -728,7 +728,7 @@ function InstruccionesContent() {
                   ease: EASE_OUT as [number, number, number, number],
                 }}
               >
-                <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+                <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-6">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)] mb-2">
                     Siguiente paso
                   </h3>
