@@ -12,6 +12,7 @@ import base64
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.codes import Channel
@@ -19,7 +20,9 @@ from app.core.config import settings
 from app.core.deps import get_db
 from app.core.errors import UnauthorizedError
 from app.integrations import email as email_client
+from app.integrations import email_templates
 from app.integrations import sinch
+from app.models import CaseFile
 from app.modules.canales import ingest
 from app.modules.canales.ingest import handle_inbound
 from app.schemas.base import CamelModel
@@ -91,7 +94,21 @@ async def email_webhook(
     # Solo acusamos recibo si el documento se asigno a un expediente valido. Si fue a
     # huerfanos (sin codigo o codigo inexistente), no se responde nada al remitente.
     if payload.sender and result["status"] == "assigned":
-        email_client.send_email(payload.sender, "Documento recibido", result["reply"])
+        codigo = result.get("codigo", "")
+        case = (
+            db.execute(
+                select(CaseFile).where(
+                    CaseFile.code == codigo, CaseFile.active_flag == 1
+                )
+            ).scalar_one_or_none()
+            if codigo
+            else None
+        )
+        nombre = ((case.client_name if case else "") or "").strip().split(" ")[0] or "cliente"
+        html = email_templates.confirmacion_html(nombre, codigo, [])
+        email_client.send_email(
+            payload.sender, "Documento recibido", result["reply"], html=html
+        )
     return result
 
 
