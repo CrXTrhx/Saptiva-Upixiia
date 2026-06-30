@@ -70,7 +70,7 @@ export function ContadoresEstado({
               />
               <span style={{ color: c.dot }}>{ICONS[estado]}</span>
             </div>
-            <p className="text-2xl font-bold text-[var(--color-text)] leading-tight">
+            <p className="text-xl sm:text-2xl font-bold text-[var(--color-text)] leading-tight">
               {conteos[estado]}
             </p>
             <p className="text-xs text-[var(--color-muted)] mt-0.5">

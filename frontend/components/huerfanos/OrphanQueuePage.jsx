@@ -851,10 +851,10 @@ export default function OrphanQueuePage({
   ];
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: BG, color: "#111827" }}>
+    <div className="min-h-dvh" style={{ backgroundColor: BG, color: "#111827" }}>
       {/* HEADER */}
       <header className="bg-white" style={{ borderBottom: "1px solid #E5E7EB" }}>
-        <div className="mx-auto max-w-[1400px] px-10 py-5">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-5">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -907,7 +907,7 @@ export default function OrphanQueuePage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-10 py-7">
+      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-7">
         {/* SUMMARY CARDS */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <SummaryCard label="Pendientes" count={conteos.PENDING} icon={Clock} color="#F59E0B" dot="#F59E0B" delay={0} />
@@ -918,7 +918,7 @@ export default function OrphanQueuePage({
 
         {/* ACTION BAR */}
         <div className="mb-5 flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[300px] flex-1">
+          <div className="relative w-full sm:min-w-[300px] sm:flex-1 sm:w-auto">
             <Search size={14} style={{ color: "#9CA3AF" }} className="absolute left-4 top-1/2 -translate-y-1/2" />
             <input
               type="search"
@@ -1014,7 +1014,7 @@ export default function OrphanQueuePage({
       <AnimatePresence>
         {preview && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6"
             style={{ backgroundColor: "rgba(17,24,39,0.5)" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1023,15 +1023,15 @@ export default function OrphanQueuePage({
             onClick={() => setPreview(null)}
           >
             <motion.div
-              className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white"
-              style={{ border: "1px solid #E5E7EB", maxHeight: "90vh" }}
+              className="w-full max-w-4xl overflow-hidden rounded-t-2xl bg-white sm:rounded-2xl"
+              style={{ border: "1px solid #E5E7EB", maxHeight: "90dvh" }}
               initial={{ scale: 0.96, y: 8 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.96, y: 8 }}
               transition={{ duration: 0.25, ease: EASE_OUT }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #E5E7EB" }}>
+              <div className="flex items-center justify-between px-4 sm:px-6 py-4" style={{ borderBottom: "1px solid #E5E7EB" }}>
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-[13px] font-semibold" style={{ color: "#111827" }}>{preview.archivo}</span>
                   <TipoChip tipo={preview.tipoDetectado} />
@@ -1040,7 +1040,7 @@ export default function OrphanQueuePage({
                 <button
                   type="button"
                   onClick={() => setPreview(null)}
-                  className="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+                  className="flex h-11 w-11 sm:h-9 sm:w-9 items-center justify-center rounded-md transition-colors"
                   style={{ color: "#6B7280" }}
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#F9FAFB")}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -1050,7 +1050,7 @@ export default function OrphanQueuePage({
                 </button>
               </div>
 
-              <div className="grid gap-6 p-6 md:grid-cols-[280px_1fr]" style={{ backgroundColor: "#FAFAF7", overflowY: "auto", maxHeight: "calc(90vh - 57px)" }}>
+              <div className="grid gap-6 p-4 sm:p-6 md:grid-cols-[280px_1fr]" style={{ backgroundColor: "#FAFAF7", overflowY: "auto", maxHeight: "calc(90dvh - 57px)" }}>
                 <div className="flex justify-center">
                   <DocThumbnail doc={preview} size="large" />
                 </div>
@@ -1081,7 +1081,7 @@ export default function OrphanQueuePage({
       <AnimatePresence>
         {confirmDiscard && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-6"
+            className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6"
             style={{ backgroundColor: "rgba(17,24,39,0.5)" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1090,7 +1090,7 @@ export default function OrphanQueuePage({
             onClick={() => setConfirmDiscard(null)}
           >
             <motion.div
-              className="w-full max-w-sm rounded-2xl bg-white p-6"
+              className="w-full max-w-sm rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:p-6"
               style={{ border: "1px solid #E5E7EB" }}
               initial={{ scale: 0.96, y: 8 }}
               animate={{ scale: 1, y: 0 }}

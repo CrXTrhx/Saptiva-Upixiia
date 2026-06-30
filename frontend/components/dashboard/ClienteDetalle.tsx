@@ -259,13 +259,13 @@ export default function ClienteDetalle({
   const sinDatos = !cliente || lista.length === 0;
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: COLOR.bg, color: COLOR.text }}>
+    <div className="min-h-dvh" style={{ backgroundColor: COLOR.bg, color: COLOR.text }}>
       {/* 1. HEADER */}
       <header
         className="sticky top-0 z-20"
         style={{ backgroundColor: COLOR.surface, borderBottom: `1px solid ${COLOR.border}` }}
       >
-        <div className="mx-auto max-w-[1400px] px-10 py-4">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-4">
           {/* Fila 1: breadcrumb + CTA */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 text-[13px]">
@@ -359,13 +359,13 @@ export default function ClienteDetalle({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-10 py-7">
+      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-7">
         {!cliente ? (
           <EmptyBlock texto="No hay datos del cliente para mostrar." />
         ) : (
           <>
             {/* 2. MINI STATS */}
-            <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               <StatCard label="Expedientes totales" value={stats.total} icon={FileText} color={COLOR.muted} delay={0} />
               <StatCard label="Activos" value={stats.activos} icon={Zap} color="#3B82F6" delay={0.05} />
               <StatCard
@@ -418,7 +418,7 @@ export default function ClienteDetalle({
 
             {/* 4. ACTION BAR */}
             <div className="flex gap-3 mb-2 flex-wrap">
-              <div className="relative flex-1 min-w-[280px]">
+              <div className="relative w-full flex-1 sm:min-w-[280px] sm:w-auto">
                 <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: COLOR.muted2 }} />
                 <input
                   value={search}
@@ -486,120 +486,209 @@ export default function ClienteDetalle({
               className="rounded-2xl overflow-hidden"
               style={{ backgroundColor: COLOR.surface, border: `1px solid ${COLOR.border}` }}
             >
-              {/* Header columnas */}
-              <div
-                className="grid px-6 py-3.5 text-[10px] uppercase tracking-wider"
-                style={{
-                  gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
-                  gap: 16,
-                  color: COLOR.muted2,
-                  backgroundColor: COLOR.tableHead,
-                  borderBottom: `1px solid ${COLOR.border}`,
-                }}
-              >
-                <div>Código</div>
-                <div>Fecha</div>
-                <div>Operación</div>
-                <div>Monto</div>
-                <div>Estado</div>
-                <div>Siguiente paso</div>
-              </div>
-
-              {loading ? (
-                Array.from({ length: 4 }).map((_, i) => (
+              {/* Desktop/tablet — grid con scroll horizontal en pantallas angostas */}
+              <div className="hidden sm:block overflow-x-auto">
+                <div style={{ minWidth: 760 }}>
+                  {/* Header columnas */}
                   <div
-                    key={i}
-                    className="grid items-center animate-pulse"
+                    className="grid px-6 py-3.5 text-[10px] uppercase tracking-wider"
                     style={{
                       gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
                       gap: 16,
-                      padding: "16px 24px",
-                      borderBottom:
-                        i === 3 ? "none" : `1px solid ${COLOR.borderInner}`,
+                      color: COLOR.muted2,
+                      backgroundColor: COLOR.tableHead,
+                      borderBottom: `1px solid ${COLOR.border}`,
                     }}
                   >
-                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
-                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
-                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
-                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
-                    <div className="h-5 w-20 rounded-full" style={{ backgroundColor: COLOR.border }} />
-                    <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                    <div>Código</div>
+                    <div>Fecha</div>
+                    <div>Operación</div>
+                    <div>Monto</div>
+                    <div>Estado</div>
+                    <div>Siguiente paso</div>
                   </div>
-                ))
-              ) : filtrados.length === 0 ? (
-                <div className="px-5 py-16 text-center flex flex-col items-center gap-3">
-                  <FileText size={26} style={{ color: COLOR.faint }} />
-                  <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
-                    {sinDatos
-                      ? "Este cliente no tiene expedientes todavía."
-                      : "No hay expedientes de este cliente que coincidan con los filtros."}
-                  </p>
-                </div>
-              ) : (
-                <AnimatePresence mode="popLayout">
-                  {mostrados.map((exp, i) => {
-                    const vencido = exp.estado === "INCOMPLETE_EXPIRED";
-                    return (
-                      <motion.div
-                        key={exp.id}
-                        layout
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15, ease: EASE_OUT }}
-                        role="link"
-                        tabIndex={0}
-                        aria-label={`Ver expediente ${exp.codigo ?? ""}`}
-                        onClick={() => onAbrirExpediente(exp)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onAbrirExpediente(exp);
-                          }
-                        }}
-                        className="relative grid items-center cursor-pointer transition-colors"
+
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="grid items-center animate-pulse"
                         style={{
                           gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
                           gap: 16,
                           padding: "16px 24px",
-                          borderBottom: i === mostrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
+                          borderBottom:
+                            i === 3 ? "none" : `1px solid ${COLOR.borderInner}`,
                         }}
-                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
-                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
                       >
-                        {vencido && (
-                          <span
-                            className="absolute left-0 top-0 bottom-0"
-                            style={{ width: 3, backgroundColor: COLOR.danger }}
-                            aria-hidden="true"
-                          />
-                        )}
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          {vencido && <AlertTriangle size={12} style={{ color: COLOR.danger }} className="shrink-0" />}
-                          <span className="font-mono tabular-nums text-[13px] truncate" style={{ color: COLOR.muted }}>
-                            {exp.codigo || "—"}
-                          </span>
-                        </div>
-                        <div className="text-[13px] tabular-nums" style={{ color: COLOR.muted }}>
-                          {formatDate(exp.fechaCreacion)}
-                        </div>
-                        <div className="text-[13px] truncate" style={{ color: COLOR.text2 }}>
-                          {TIPO_OPERACION_LABEL[exp.tipoOperacion] ?? "—"}
-                        </div>
-                        <div className="text-[13px] font-medium tabular-nums" style={{ color: COLOR.text }}>
-                          {formatMoney(exp.montoEstimado)}
-                        </div>
-                        <div>
-                          <Badge estado={exp.estado} small />
-                        </div>
-                        <div className="text-[13px] truncate" style={{ color: COLOR.text2 }}>
-                          {exp.nextStepPrioritario || "—"}
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
-              )}
+                        <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                        <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                        <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                        <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                        <div className="h-5 w-20 rounded-full" style={{ backgroundColor: COLOR.border }} />
+                        <div className="h-3.5 rounded" style={{ backgroundColor: COLOR.border }} />
+                      </div>
+                    ))
+                  ) : filtrados.length === 0 ? (
+                    <div className="px-5 py-16 text-center flex flex-col items-center gap-3">
+                      <FileText size={26} style={{ color: COLOR.faint }} />
+                      <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
+                        {sinDatos
+                          ? "Este cliente no tiene expedientes todavía."
+                          : "No hay expedientes de este cliente que coincidan con los filtros."}
+                      </p>
+                    </div>
+                  ) : (
+                    <AnimatePresence mode="popLayout">
+                      {mostrados.map((exp, i) => {
+                        const vencido = exp.estado === "INCOMPLETE_EXPIRED";
+                        return (
+                          <motion.div
+                            key={exp.id}
+                            layout
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15, ease: EASE_OUT }}
+                            role="link"
+                            tabIndex={0}
+                            aria-label={`Ver expediente ${exp.codigo ?? ""}`}
+                            onClick={() => onAbrirExpediente(exp)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                onAbrirExpediente(exp);
+                              }
+                            }}
+                            className="relative grid items-center cursor-pointer transition-colors"
+                            style={{
+                              gridTemplateColumns: "170px 120px 1fr 130px 130px 1.4fr",
+                              gap: 16,
+                              padding: "16px 24px",
+                              borderBottom: i === mostrados.length - 1 ? "none" : `1px solid ${COLOR.borderInner}`,
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                          >
+                            {vencido && (
+                              <span
+                                className="absolute left-0 top-0 bottom-0"
+                                style={{ width: 3, backgroundColor: COLOR.danger }}
+                                aria-hidden="true"
+                              />
+                            )}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {vencido && <AlertTriangle size={12} style={{ color: COLOR.danger }} className="shrink-0" />}
+                              <span className="font-mono tabular-nums text-[13px] truncate" style={{ color: COLOR.muted }}>
+                                {exp.codigo || "—"}
+                              </span>
+                            </div>
+                            <div className="text-[13px] tabular-nums" style={{ color: COLOR.muted }}>
+                              {formatDate(exp.fechaCreacion)}
+                            </div>
+                            <div className="text-[13px] truncate" style={{ color: COLOR.text2 }}>
+                              {TIPO_OPERACION_LABEL[exp.tipoOperacion] ?? "—"}
+                            </div>
+                            <div className="text-[13px] font-medium tabular-nums" style={{ color: COLOR.text }}>
+                              {formatMoney(exp.montoEstimado)}
+                            </div>
+                            <div>
+                              <Badge estado={exp.estado} small />
+                            </div>
+                            <div className="text-[13px] truncate" style={{ color: COLOR.text2 }}>
+                              {exp.nextStepPrioritario || "—"}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
+                  )}
+                </div>
+              </div>
+
+              {/* Teléfono (<640px) — tarjetas compactas, mismo patrón que TablaExpedientes */}
+              <div className="sm:hidden divide-y" style={{ borderColor: COLOR.borderInner }}>
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="p-4 animate-pulse space-y-2">
+                      <div className="h-4 w-32 rounded" style={{ backgroundColor: COLOR.border }} />
+                      <div className="h-3 w-48 rounded" style={{ backgroundColor: COLOR.border }} />
+                      <div className="h-3 w-24 rounded" style={{ backgroundColor: COLOR.border }} />
+                    </div>
+                  ))
+                ) : filtrados.length === 0 ? (
+                  <div className="px-5 py-16 text-center flex flex-col items-center gap-3">
+                    <FileText size={26} style={{ color: COLOR.faint }} />
+                    <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
+                      {sinDatos
+                        ? "Este cliente no tiene expedientes todavía."
+                        : "No hay expedientes de este cliente que coincidan con los filtros."}
+                    </p>
+                  </div>
+                ) : (
+                  <AnimatePresence mode="popLayout">
+                    {mostrados.map((exp) => {
+                      const vencido = exp.estado === "INCOMPLETE_EXPIRED";
+                      return (
+                        <motion.div
+                          key={exp.id}
+                          layout
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15, ease: EASE_OUT }}
+                          role="link"
+                          tabIndex={0}
+                          aria-label={`Ver expediente ${exp.codigo ?? ""}`}
+                          onClick={() => onAbrirExpediente(exp)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onAbrirExpediente(exp);
+                            }
+                          }}
+                          className="relative p-4 cursor-pointer transition-colors"
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                        >
+                          {vencido && (
+                            <span
+                              className="absolute left-0 top-2 bottom-2"
+                              style={{ width: 3, backgroundColor: COLOR.danger }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              {vencido && <AlertTriangle size={12} style={{ color: COLOR.danger }} className="shrink-0" />}
+                              <span className="font-mono tabular-nums text-xs truncate" style={{ color: COLOR.muted }}>
+                                {exp.codigo || "—"}
+                              </span>
+                            </span>
+                            <Badge estado={exp.estado} small />
+                          </div>
+                          <p className="text-sm font-medium truncate" style={{ color: COLOR.text }}>
+                            {TIPO_OPERACION_LABEL[exp.tipoOperacion] ?? "—"}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1.5 text-xs" style={{ color: COLOR.muted }}>
+                            <span>{formatDate(exp.fechaCreacion)}</span>
+                            <span>·</span>
+                            <span className="font-medium" style={{ color: COLOR.text2 }}>
+                              {formatMoney(exp.montoEstimado)}
+                            </span>
+                          </div>
+                          {exp.nextStepPrioritario && (
+                            <p className="text-xs truncate mt-1" style={{ color: COLOR.text2 }}>
+                              {exp.nextStepPrioritario}
+                            </p>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                )}
+              </div>
+
               {hayMas && (
                 <div
                   className="flex justify-center p-3"

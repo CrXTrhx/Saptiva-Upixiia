@@ -539,7 +539,7 @@ export default function AssignOrphanModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
           style={{ backgroundColor: "rgba(17,24,39,0.25)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -548,14 +548,14 @@ export default function AssignOrphanModal({
           onClick={handleOverlayClose}
         >
           <motion.div
-            className="w-full max-w-3xl overflow-hidden rounded-3xl"
+            className="w-full max-w-3xl overflow-hidden rounded-t-3xl sm:rounded-3xl"
             style={{
               backgroundColor: "rgba(248,246,242,0.85)",
               backdropFilter: "blur(24px)",
               WebkitBackdropFilter: "blur(24px)",
               border: "1px solid rgba(255,255,255,0.6)",
               boxShadow: "0 20px 60px rgba(17,24,39,0.18)",
-              maxHeight: "88vh",
+              maxHeight: "90dvh",
             }}
             initial={{ opacity: 0, scale: 0.96, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -564,7 +564,7 @@ export default function AssignOrphanModal({
             onClick={(e) => e.stopPropagation()}
           >
             {/* HEADER */}
-            <div className="flex items-start justify-between px-6 pt-5 pb-4" style={{ borderBottom: "1px solid rgba(229,231,235,0.6)" }}>
+            <div className="flex items-start justify-between px-4 sm:px-6 pt-5 pb-4" style={{ borderBottom: "1px solid rgba(229,231,235,0.6)" }}>
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: "#FCEEDB" }}>
                   <Link2 size={15} style={{ color: ACCENT }} />
@@ -579,7 +579,7 @@ export default function AssignOrphanModal({
               <button
                 type="button"
                 onClick={handleOverlayClose}
-                className="flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+                className="flex h-11 w-11 sm:h-9 sm:w-9 items-center justify-center rounded-full transition-colors"
                 style={{ color: "#6B7280" }}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.6)")}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
@@ -591,8 +591,8 @@ export default function AssignOrphanModal({
 
             {/* BODY */}
             <div
-              className="grid grid-cols-1 gap-5 overflow-y-auto p-6 md:grid-cols-[260px_1fr]"
-              style={{ maxHeight: "calc(88vh - 180px)" }}
+              className="grid grid-cols-1 gap-5 overflow-y-auto p-4 sm:p-6 md:grid-cols-[260px_1fr]"
+              style={{ maxHeight: "calc(90dvh - 180px)" }}
             >
               {/* IZQUIERDA */}
               <DocumentSummary doc={documento} onExpandPreview={() => setPreviewExpandido(true)} />
@@ -653,7 +653,7 @@ export default function AssignOrphanModal({
             </div>
 
             {/* FOOTER */}
-            <div className="px-6 py-4" style={{ borderTop: "1px solid rgba(229,231,235,0.6)", backgroundColor: "rgba(255,255,255,0.4)" }}>
+            <div className="px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4" style={{ borderTop: "1px solid rgba(229,231,235,0.6)", backgroundColor: "rgba(255,255,255,0.4)" }}>
               {assignError && (
                 <p className="mb-2 flex items-center gap-1.5 text-[12px]" style={{ color: "#B91C1C" }}>
                   <AlertCircle size={13} />

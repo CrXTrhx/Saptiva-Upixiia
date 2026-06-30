@@ -239,9 +239,9 @@ function DashboardContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-dvh flex flex-col">
       <DashboardHeader huerfanosPendientes={huerfanos} />
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 py-6 space-y-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         <ContadoresEstado conteos={conteos} loading={loadingConteos} />
         <FiltrosBusqueda query={query} onChange={handleQueryChange} />
 

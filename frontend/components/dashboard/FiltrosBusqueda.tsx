@@ -60,12 +60,12 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-    <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-      <Link href="/nueva-venta">
-        <Button className="whitespace-nowrap shrink-0">+ Nueva venta</Button>
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <Link href="/nueva-venta" className="w-full lg:w-auto">
+        <Button className="w-full whitespace-nowrap lg:w-auto shrink-0">+ Nueva venta</Button>
       </Link>
 
-      <div className="relative flex-1 min-w-0">
+      <div className="relative w-full lg:flex-1 lg:min-w-0">
         <svg
           className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
           width="16"
@@ -86,10 +86,11 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
           aria-label="Buscar expedientes"
           value={searchLocal}
           onChange={(e) => setSearchLocal(e.target.value)}
-          className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2.5 pl-9 pr-3 text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)]"
+          className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-2.5 pl-9 pr-3 text-base sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-muted)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)]"
         />
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:flex lg:shrink-0">
       <select
         aria-label="Filtrar por estado"
         value={query.estado ?? ""}
@@ -99,7 +100,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
             estado: (e.target.value as Estado) || undefined,
           })
         }
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
+        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
       >
         <option value="">Estado</option>
         {ESTADOS.map((e) => (
@@ -124,7 +125,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
               : undefined,
           })
         }
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
+        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
       >
         {FECHA_PRESETS.map((p) => (
           <option key={p.value} value={p.value}>
@@ -143,7 +144,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
               (e.target.value as DocumentoRequerido) || undefined,
           })
         }
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
+        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
       >
         <option value="">Documento</option>
         {DOCUMENTOS_REQUERIDOS.map((d) => (
@@ -152,6 +153,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
           </option>
         ))}
       </select>
+      </div>
     </div>
 
       {/* Limpiar filtros — fila propia debajo de los filtros, alineada a la derecha
@@ -162,7 +164,7 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
           type="button"
           onClick={limpiarFiltros}
           tabIndex={hasFilters ? 0 : -1}
-          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors"
+          className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium cursor-pointer transition-colors"
           style={{ backgroundColor: "#FEE2E2", border: "1px solid #EF4444", color: "#B91C1C" }}
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#FECACA")}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#FEE2E2")}

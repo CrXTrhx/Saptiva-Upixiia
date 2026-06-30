@@ -89,7 +89,7 @@ function Field({
 }
 
 const inputBase =
-  "w-full rounded-lg border bg-[var(--color-surface)] px-3.5 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-tertiary)] transition-colors focus:outline-none focus:ring-2 hover:border-[var(--color-muted)]";
+  "w-full rounded-lg border bg-[var(--color-surface)] px-3.5 py-2.5 text-base sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-tertiary)] transition-colors focus:outline-none focus:ring-2 hover:border-[var(--color-muted)]";
 const inputNormal = `${inputBase} border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-[var(--color-accent-ring)]`;
 const inputError = `${inputBase} border-[var(--color-error)] focus:border-[var(--color-error)] focus:ring-[var(--color-error)]/15`;
 
@@ -489,10 +489,10 @@ function NuevaVentaContent() {
     rfcFocus && !clienteBloqueado && sugerencias.length > 0;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-dvh">
       {/* Header */}
       <header className="border-b border-[var(--color-border)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 sm:px-8 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center gap-3 text-sm">
             <button
               type="button"
@@ -524,7 +524,7 @@ function NuevaVentaContent() {
       </header>
 
       {/* Content */}
-      <main className="mx-auto max-w-6xl px-6 sm:px-8 py-8">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8">
         {/* Title */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-text)]">
@@ -623,7 +623,7 @@ function NuevaVentaContent() {
             <form
               onSubmit={handleSubmit}
               noValidate
-              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8"
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-8 pb-24 sm:pb-8"
             >
               <div className="flex flex-col gap-6">
                 {/* RFC — primero (identidad del cliente) con autocompletado */}
@@ -813,15 +813,16 @@ function NuevaVentaContent() {
                 </div>
               )}
 
-              {/* Footer */}
-              <div className="mt-8 flex items-center justify-between border-t border-[var(--color-border-inner)] pt-6">
-                <span className="text-xs text-[var(--color-tertiary)]">
+              {/* Footer — en móvil: barra fija al fondo (CTA siempre accesible en
+                  formularios largos); en sm+: pie de formulario normal. */}
+              <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-[var(--color-border-inner)] bg-[var(--color-surface)] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:static sm:z-auto sm:mt-8 sm:gap-0 sm:bg-transparent sm:px-0 sm:py-0 sm:pt-6 sm:shadow-none">
+                <span className="min-w-0 truncate text-xs text-[var(--color-tertiary)]">
                   {footerText}
                 </span>
                 <button
                   type="submit"
                   disabled={!isValid || submitting}
-                  className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
                     isValid && !submitting
                       ? "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]"
                       : "bg-[var(--color-disabled-bg)] text-[var(--color-tertiary)] cursor-not-allowed"
@@ -843,7 +844,7 @@ function NuevaVentaContent() {
           {/* Sidebar — 1/3 */}
           <div className="flex flex-col gap-5">
             {/* Preview card */}
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-6">
               <div className="flex items-center gap-1.5 mb-3">
                 <Sparkles
                   size={12}
@@ -876,7 +877,7 @@ function NuevaVentaContent() {
             </div>
 
             {/* Roadmap card */}
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 sm:p-6">
               <h3 className="text-sm font-semibold text-[var(--color-text)] mb-1.5">
                 ¿Qué pasará después?
               </h3>

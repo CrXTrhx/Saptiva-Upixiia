@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   return (
     <main
-      className="flex min-h-screen items-center justify-center px-4 py-10"
+      className="flex min-h-dvh items-center justify-center px-4 py-10"
       style={{
         background: "radial-gradient(circle at top left, rgba(241,155,66,0.18), transparent 18%), radial-gradient(circle at bottom right, rgba(241,155,66,0.08), transparent 20%), linear-gradient(180deg, #fff9f2 0%, #f7f0e7 100%)",
       }}
@@ -31,7 +31,7 @@ export default function LoginPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--color-accent)] mb-4">
             DigitalFoldr
           </p>
-          <h1 className="text-4xl font-semibold tracking-tight text-[var(--color-text)]">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[var(--color-text)]">
             Bienvenido de vuelta
           </h1>
          

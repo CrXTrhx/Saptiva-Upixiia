@@ -65,7 +65,7 @@ export default function RespuestaLLMModal({
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
         style={{ backgroundColor: "rgba(48,47,45,0.4)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -74,7 +74,7 @@ export default function RespuestaLLMModal({
         onClick={onClose}
       >
         <motion.div
-          className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white"
+          className="flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white sm:max-h-[85vh] sm:rounded-2xl"
           style={{ border: "1px solid #E5DED6", boxShadow: "0 20px 60px rgba(48,47,45,0.18)" }}
           initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -83,7 +83,7 @@ export default function RespuestaLLMModal({
           onClick={(e) => e.stopPropagation()}
         >
           {/* HEADER */}
-          <div className="flex items-start justify-between gap-4 px-6 py-4" style={{ borderBottom: "1px solid #F0EBE5" }}>
+          <div className="flex items-start justify-between gap-4 px-4 sm:px-6 py-4" style={{ borderBottom: "1px solid #F0EBE5" }}>
             <div className="flex items-start gap-2.5">
               <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: "#FCEEDB" }}>
                 <Sparkles size={15} style={{ color: "#A86518" }} />
@@ -98,7 +98,7 @@ export default function RespuestaLLMModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors"
+              className="flex h-11 w-11 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-md transition-colors"
               style={{ color: "#989396" }}
               onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#FAF6F1"; e.currentTarget.style.color = "#302F2D"; }}
               onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#989396"; }}
@@ -109,7 +109,7 @@ export default function RespuestaLLMModal({
           </div>
 
           {/* BODY */}
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
             {/* Pregunta */}
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wider" style={{ color: "#B5AFA9" }}>
               Pregunta realizada
@@ -166,7 +166,7 @@ export default function RespuestaLLMModal({
           </div>
 
           {/* FOOTER */}
-          <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid #F0EBE5", backgroundColor: "#FAF6F1" }}>
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4" style={{ borderTop: "1px solid #F0EBE5", backgroundColor: "#FAF6F1" }}>
             <button
               type="button"
               onClick={handleCopy}
