@@ -69,6 +69,39 @@ def _boton(texto: str, href: str) -> str:
 </table>"""
 
 
+def confirmacion_html(
+    nombre: str,
+    case_code: str,
+    documentos: list[str],
+) -> str:
+    """Acuse de recibo de documentos asignados a un expediente, en HTML de marca.
+
+    `documentos`: nombres de los archivos recibidos. Si va vacio, se muestra un
+    mensaje generico (un solo documento sin desglosar).
+    """
+    code = escape(case_code)
+    n = len(documentos)
+
+    if documentos:
+        items = [f'<span style="color:{TEXT};">{escape(d)}</span>' for d in documentos]
+        cuerpo = (
+            f'<p style="margin:0 0 4px;">Recibimos <strong>{n}</strong> '
+            f'documento{"s" if n != 1 else ""} para tu expediente '
+            f'<strong>{code}</strong>:</p>' + _lista(items)
+        )
+    else:
+        cuerpo = (
+            f'<p style="margin:0 0 4px;">Recibimos tu documento para el expediente '
+            f'<strong>{code}</strong>.</p>'
+        )
+
+    cuerpo += (
+        f'<p style="margin:18px 0 0;color:{TEXT_SECONDARY};">Los estamos analizando. '
+        f'Te avisaremos si necesitamos algo mas.</p>'
+    )
+    return _shell(nombre, cuerpo)
+
+
 def digest_html(
     nombre: str,
     case_code: str,

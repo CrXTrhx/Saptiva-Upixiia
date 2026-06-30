@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.codes import Channel
 from app.core.db import db_session
 from app.integrations import email as email_client
+from app.integrations import email_templates
 from app.models import CaseFile
 from app.modules.canales import codigo_extractor
 from app.modules.documentos import service as doc_service
@@ -164,6 +165,29 @@ def _enviar_confirmacion(
         "",
         "Los estamos analizando. Te avisaremos si necesitamos algo mas.",
     ]
-    email_client.send_email(
-        sender, f"Documentos recibidos — {codigo}", "\n".join(lineas)
+    html = email_templates.confirmacion_html(
+        _nombre_de_expediente(codigo), codigo or "", asignados
     )
+    email_client.send_email(
+        sender, f"Documentos recibidos — {codigo}", "\n".join(lineas), html=html
+    )
+
+
+def _nombre_de_expediente(codigo: str | None) -> str:
+    """Primer nombre del cliente del expediente (para el saludo del correo).
+
+    Devuelve "cliente" si no hay codigo, no existe el expediente o falla la lectura.
+    """
+    if not codigo:
+        return "cliente"
+    try:
+        with db_session() as db:
+            case = db.execute(
+                select(CaseFile).where(
+                    CaseFile.code == codigo, CaseFile.active_flag == 1
+                )
+            ).scalar_one_or_none()
+            nombre = ((case.client_name if case else "") or "").strip().split(" ")[0]
+            return nombre or "cliente"
+    except Exception:
+        return "cliente"
