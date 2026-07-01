@@ -1,7 +1,8 @@
 """Extrae el codigo de expediente del texto de un mensaje.
 
-Reconoce el formato nuevo EXP-AAAA-{BLN|VNT}{NNNNN}-{XXXX} (ej. EXP-2026-BLN00001-K7MQ)
-y tambien el formato viejo EXP-AAAA-NNNNN (expedientes creados antes del cambio).
+Reconoce el formato nuevo EXP-AAAA-{BLN|VNT|MIX|GEN}{NNNNN}-{XXXX}
+(ej. EXP-2026-BLN00001-K7MQ) y tambien el formato viejo EXP-AAAA-NNNNN
+(expedientes creados antes del cambio).
 """
 from __future__ import annotations
 
@@ -10,8 +11,10 @@ import re
 # El formato nuevo va primero para que matchee completo (con su sufijo) antes que el
 # viejo. El sufijo se acepta como 4 alfanumericos (extraccion tolerante); el match
 # real contra un expediente lo decide la BD.
+# Prefijos deben coincidir con los generados por fn_case_set_code en el schema
+# (BLN=ARMORING, VNT=VEHICLE_SALE, MIX=MIXED, GEN=cualquier otro).
 _CODE_RE = re.compile(
-    r"EXP-\d{4}-(?:BLN|VNT|GEN)\d{5}-[A-Z0-9]{4}|EXP-\d{4}-\d{5}", re.IGNORECASE
+    r"EXP-\d{4}-(?:BLN|VNT|MIX|GEN)\d{5}-[A-Z0-9]{4}|EXP-\d{4}-\d{5}", re.IGNORECASE
 )
 
 # Palabras clave para inferir el tipo declarado desde el mensaje ("te mando mi INE")
