@@ -52,6 +52,18 @@ def _checklist_item(db: Session, case_id, doc_type: str | None) -> CaseChecklist
     ).scalar_one_or_none()
 
 
+def _ensure_case_editable(db: Session, doc: Document) -> None:
+    """Defensa en profundidad: un expediente ARCHIVED o CANCELLED es de solo lectura y
+    no admite mutaciones de sus documentos. La UI ya lo bloquea (esSoloLectura); este
+    guard lo hace fail-closed tambien a nivel de API, para cualquier llamada directa."""
+    case = db.get(CaseFile, doc.case_file_id)
+    if case is not None and case.status_code in (CaseStatus.ARCHIVED, CaseStatus.CANCELLED):
+        raise ConflictError(
+            "El expediente es de solo lectura (archivado o cancelado); "
+            "no admite cambios en sus documentos"
+        )
+
+
 def ingest_document(
     db: Session,
     case: CaseFile,
@@ -216,6 +228,7 @@ def ingest_existing(
 
 
 def validar_documento(db: Session, doc: Document, user: AppUser) -> Document:
+    _ensure_case_editable(db, doc)
     if doc.status_code == DocStatus.VALIDATED:
         return doc
     doc.status_code = DocStatus.VALIDATED
@@ -247,6 +260,7 @@ def validar_documento(db: Session, doc: Document, user: AppUser) -> Document:
 def rechazar_documento(
     db: Session, doc: Document, categoria: str, texto: str, user: AppUser
 ) -> Document:
+    _ensure_case_editable(db, doc)
     doc.status_code = DocStatus.REJECTED
     doc.rejection_reason_code = categoria
     doc.rejection_note = texto
@@ -259,7 +273,11 @@ def rechazar_documento(
         item.status_code = ChecklistStatus.REJECTED
         item.current_document_id = None
         db.flush()
-    elif item and item.status_code != ChecklistStatus.VALIDATED:
+    elif item and item.current_document_id is None and item.status_code != ChecklistStatus.VALIDATED:
+        # Solo se degrada el item cuando esta HUERFANO (sin documento vigente). Si apunta
+        # a OTRO documento aun valido (rechazamos una version anterior / duplicado no
+        # vigente), el tipo sigue satisfecho: no se toca el checklist y, por tanto, un
+        # expediente EN VALIDACION / COMPLETO no se regresa a recepcion por error.
         item.status_code = ChecklistStatus.REJECTED
         db.flush()
 
@@ -269,12 +287,39 @@ def rechazar_documento(
         f"Documento {doc_type or ''} rechazado por {user.full_name}: {texto}",
         actor=user.email, actor_user_id=user.id,
     )
+    # Un rechazo solo regresa el expediente a recepcion si de verdad rompio la
+    # completitud del checklist. Rechazar un documento que NO es el vigente de su tipo
+    # (p.ej. una version superseded o un duplicado que nunca fue el actual) deja el
+    # checklist intacto; en ese caso un expediente COMPLETO / EN VALIDACION debe
+    # conservar su estado y su reloj de completado (completed_at).
+    if case.status_code in (CaseStatus.IN_VALIDATION, CaseStatus.COMPLETE):
+        items = list(
+            db.execute(
+                select(CaseChecklistItem).where(
+                    CaseChecklistItem.case_file_id == case.id,
+                    CaseChecklistItem.active_flag == 1,
+                )
+            ).scalars()
+        )
+        presentes = {ChecklistStatus.RECEIVED, ChecklistStatus.VALIDATED}
+        completitud_intacta = bool(items) and all(
+            i.status_code in presentes for i in items
+        )
+        if not completitud_intacta:
+            if case.status_code == CaseStatus.COMPLETE:
+                case.completed_at = None
+            transition(
+                db, case, CaseStatus.RECEIVING,
+                actor=user.email, actor_user_id=user.id,
+                descripcion="Documento rechazado, regresa a recepcion",
+            )
     ns.recompute(db, case)
     return doc
 
 
 def revertir_rechazo(db: Session, doc: Document, user: AppUser) -> Document:
     """Revierte un rechazo (PRD §5): el documento vuelve a 'recibido'."""
+    _ensure_case_editable(db, doc)
     if doc.status_code != DocStatus.REJECTED:
         raise ConflictError("El documento no esta rechazado")
     doc.status_code = DocStatus.RECEIVED
@@ -307,6 +352,7 @@ def descartar_documento(db: Session, doc: Document, user: AppUser) -> Document:
     registra `discarded_at`; si el item del checklist lo apuntaba, se libera para que
     el tipo vuelva a quedar pendiente.
     """
+    _ensure_case_editable(db, doc)
     if doc.status_code != DocStatus.REJECTED:
         raise ConflictError("Solo se pueden descartar documentos rechazados")
     doc.status_code = DocStatus.DISCARDED
@@ -340,6 +386,7 @@ def restaurar_descartado(db: Session, doc: Document, user: AppUser) -> Document:
     lo REEMPLAZA en vez de duplicar el tipo: el activo pasa a REPLACED y queda como
     "version anterior" del restaurado (mismo patron que reemplazar_documento).
     """
+    _ensure_case_editable(db, doc)
     if doc.status_code != DocStatus.DISCARDED:
         raise ConflictError("El documento no esta descartado")
 
@@ -400,6 +447,7 @@ def reemplazar_documento(
     mime_type: str | None,
     user: AppUser,
 ) -> Document:
+    _ensure_case_editable(db, doc)
     case = db.get(CaseFile, doc.case_file_id)
     declared = doc.declared_type_code or doc.detected_type_code
 
@@ -434,6 +482,7 @@ def restaurar_version(db: Session, doc: Document, user: AppUser) -> Document:
     retroceder un nivel: la version que se restaura mostrara a `doc` como su
     nueva "version anterior".
     """
+    _ensure_case_editable(db, doc)
     prev = db.execute(
         select(Document)
         .where(Document.replaced_by_id == doc.id)

@@ -19,6 +19,7 @@ import uuid
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.codes import CaseStatus
 from app.models import CaseFile
 from app.modules.expedientes import serializers
 from app.modules.expedientes import service as exp_service
@@ -78,6 +79,20 @@ def list_clientes(
     for c in cases:
         grupos.setdefault(_client_key(c), []).append(c)
 
+    # ARCHIVED por cliente, INDEPENDIENTE de los filtros estado/fecha. Los archivados
+    # viven en su propia seccion del detalle (retencion): su badge NO debe ocultarse
+    # solo porque el dashboard tenga un filtro de estado activo (que si aplica al resto
+    # del conteo). Query ligera aparte (2 columnas; los archivados son subconjunto chico).
+    archivados_por_cliente: dict[str, int] = {}
+    for cid, rfc in db.execute(
+        select(CaseFile.id, CaseFile.client_rfc).where(
+            CaseFile.active_flag == 1,
+            CaseFile.status_code == CaseStatus.ARCHIVED,
+        )
+    ).all():
+        akey = (rfc or "").strip().upper() or str(cid)
+        archivados_por_cliente[akey] = archivados_por_cliente.get(akey, 0) + 1
+
     filas: list[tuple[int, float, dict]] = []
     for key, group in grupos.items():
         # Ordena el grupo por prioridad (misma regla que la lista de expedientes):
@@ -94,6 +109,14 @@ def list_clientes(
         conteo: dict[str, int] = {}
         for c in group:
             conteo[c.status_code] = conteo.get(c.status_code, 0) + 1
+        # ARCHIVED refleja SIEMPRE el total real del cliente (no el filtrado), para que
+        # la seccion "Archivados" del detalle sea consistente con lo que devuelve
+        # ?archivados=true (que ignora filtros). El resto de estados si respeta el filtro.
+        arch_n = archivados_por_cliente.get(key, 0)
+        if arch_n:
+            conteo["ARCHIVED"] = arch_n
+        else:
+            conteo.pop("ARCHIVED", None)
 
         tiene_urgente = any(
             exp_service._prioridad(case=c, ultima_map=ultima_map) == 0 for c in group
@@ -128,9 +151,15 @@ def list_clientes(
     return [fila[2] for fila in filas]
 
 
-def expedientes_de_cliente(db: Session, clave: str) -> list[CaseFile]:
+def expedientes_de_cliente(
+    db: Session, clave: str, *, solo_archivados: bool = False
+) -> list[CaseFile]:
     """Expedientes de un cliente. `clave` puede ser un RFC (cliente real) o un UUID
-    (expediente legacy sin RFC). Ordenados por prioridad como la lista principal."""
+    (expediente legacy sin RFC).
+
+    Por defecto EXCLUYE los archivados (viven en su propia seccion del detalle, para
+    no meter ruido visual). Con solo_archivados=True devuelve UNICAMENTE los
+    archivados, del mas reciente al mas antiguo (carga diferida al expandir)."""
     clave = (clave or "").strip()
     try:
         uid = uuid.UUID(clave)
@@ -138,13 +167,21 @@ def expedientes_de_cliente(db: Session, clave: str) -> list[CaseFile]:
     except (ValueError, TypeError):
         cond = func.upper(CaseFile.client_rfc) == clave.upper()
 
-    cases = list(
-        db.execute(
-            select(CaseFile).where(CaseFile.active_flag == 1, cond)
-        ).scalars()
-    )
+    stmt = select(CaseFile).where(CaseFile.active_flag == 1, cond)
+    if solo_archivados:
+        stmt = stmt.where(CaseFile.status_code == CaseStatus.ARCHIVED)
+    else:
+        stmt = stmt.where(CaseFile.status_code != CaseStatus.ARCHIVED)
+
+    cases = list(db.execute(stmt).scalars())
     if not cases:
         return []
+
+    if solo_archivados:
+        # Mas recientemente archivados primero (fallback a fecha de creacion).
+        cases.sort(key=lambda c: (c.archived_at or c.created_at), reverse=True)
+        return cases
+
     ultima_map = serializers.ultima_actividad_map(db, [c.id for c in cases])
     cases.sort(
         key=lambda c: (

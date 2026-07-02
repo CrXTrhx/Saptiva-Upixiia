@@ -14,9 +14,14 @@ import sys
 import time
 from datetime import datetime
 
-from app.crons.jobs import inactividad, vencimiento_consumado, vencimiento_proximo
+from app.crons.jobs import (
+    archivar_completados,
+    inactividad,
+    vencimiento_consumado,
+    vencimiento_proximo,
+)
 
-_JOBS = (vencimiento_proximo, vencimiento_consumado, inactividad)
+_JOBS = (vencimiento_proximo, vencimiento_consumado, inactividad, archivar_completados)
 _DEFAULT_INTERVAL = 24 * 60 * 60  # 24 h
 
 

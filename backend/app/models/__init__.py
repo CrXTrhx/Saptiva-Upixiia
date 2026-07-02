@@ -67,6 +67,10 @@ class CaseFile(Base):
     operation_type_code: Mapped[str] = mapped_column(String(40))
     status_code: Mapped[str] = mapped_column(String(40), server_default=FetchedValue())
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
+    # Reloj del ciclo de cierre: completed_at marca cuando se validó/completó (base del
+    # auto-archivado a los N días); archived_at, cuando se archivó (manual o automático).
+    completed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"))
     active_flag: Mapped[int] = mapped_column(SmallInteger, default=1)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=FetchedValue())

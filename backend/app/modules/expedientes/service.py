@@ -384,6 +384,9 @@ def marcar_completo(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
         actor_user_id=user.id,
         descripcion="Expediente marcado como completo",
     )
+    # Marca el reloj de auto-archivado: se archivara solo tras auto_archivar_dias.
+    case.completed_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
     registrar_evento(
         db, case.id, EventType.CASE_COMPLETED, "Expediente validado y completo",
         actor=user.email, actor_user_id=user.id,
@@ -454,10 +457,32 @@ def archivar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
         db, case, CaseStatus.ARCHIVED, actor=user.email, actor_user_id=user.id,
         descripcion="Expediente archivado",
     )
+    case.archived_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
     registrar_evento(
         db, case.id, EventType.CASE_ARCHIVED, "Expediente archivado",
         actor=user.email, actor_user_id=user.id,
     )
+    ns.recompute(db, case)
+    return case
+
+
+def desarchivar(db: Session, case: CaseFile, user: AppUser) -> CaseFile:
+    """Regresa un expediente archivado a COMPLETO (edicion habilitada de nuevo).
+
+    Reinicia el reloj de auto-archivado (completed_at = ahora) para que no vuelva a
+    archivarse de inmediato, y limpia archived_at. La transicion ARCHIVED -> COMPLETE
+    ya deja registrado el cambio de estado en el timeline.
+    """
+    if case.status_code != CaseStatus.ARCHIVED:
+        raise ConflictError("El expediente no esta archivado")
+    transition(
+        db, case, CaseStatus.COMPLETE, actor=user.email, actor_user_id=user.id,
+        descripcion="Expediente desarchivado",
+    )
+    case.completed_at = dt.datetime.now(dt.timezone.utc)
+    case.archived_at = None
+    db.flush()
     ns.recompute(db, case)
     return case
 

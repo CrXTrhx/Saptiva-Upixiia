@@ -155,6 +155,17 @@ def archivar(
     return serializers.serialize_expediente(db, case)
 
 
+@router.patch("/expedientes/{case_id}/desarchivar")
+def desarchivar(
+    case_id: str,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    case = service.get_case_or_404(db, case_id)
+    service.desarchivar(db, case, user)
+    return serializers.serialize_expediente(db, case)
+
+
 @router.patch("/expedientes/{case_id}/cancelar")
 def cancelar(
     case_id: str,

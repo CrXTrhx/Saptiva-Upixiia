@@ -42,9 +42,13 @@ def sugerencias_rfc(
 @router.get("/clientes/{clave}/expedientes")
 def expedientes_de_cliente(
     clave: str,
+    archivados: bool = Query(default=False),
     db: Session = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
-    """Expedientes de un cliente (carga diferida al hacer clic en el dashboard)."""
-    cases = service.expedientes_de_cliente(db, clave)
+    """Expedientes de un cliente (carga diferida al hacer clic en el dashboard).
+
+    Por defecto NO incluye archivados; `?archivados=true` devuelve solo los archivados
+    (la seccion "Archivados" del detalle los pide asi, al expandirse)."""
+    cases = service.expedientes_de_cliente(db, clave, solo_archivados=archivados)
     return serializers.serialize_expedientes_bulk(db, cases)

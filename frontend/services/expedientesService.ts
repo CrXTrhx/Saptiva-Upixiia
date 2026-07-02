@@ -180,13 +180,23 @@ export const expedientesService = {
     return apiClient<ClienteResumen[]>(`/clientes${buildQueryString(query)}`);
   },
 
-  // Paso 2: expedientes de UN cliente (al hacer clic). `clave` es el RFC o, si es
-  // un cliente legacy sin RFC, el id del expediente.
+  // Paso 2: expedientes ACTIVOS de UN cliente (al hacer clic). `clave` es el RFC o,
+  // si es un cliente legacy sin RFC, el id del expediente. NO incluye archivados (el
+  // backend los excluye por defecto): esos se piden aparte y bajo demanda.
   async getExpedientesDeCliente(clave: string): Promise<Expediente[]> {
     const data = await apiClient<Expediente[]>(
       `/clientes/${encodeURIComponent(clave)}/expedientes`,
     );
     return ordenarPorPrioridad(data);
+  },
+
+  // Expedientes ARCHIVADOS de un cliente (carga diferida: solo al abrir la sección
+  // "Archivados" del detalle). El backend ya los ordena del más reciente al más
+  // antiguo, así que aquí NO se reordena por prioridad.
+  async getExpedientesArchivadosDeCliente(clave: string): Promise<Expediente[]> {
+    return apiClient<Expediente[]>(
+      `/clientes/${encodeURIComponent(clave)}/expedientes?archivados=true`,
+    );
   },
 
   // Autocompletado de RFC en el form de nueva venta: clientes cuyo RFC empieza
@@ -295,6 +305,12 @@ export const expedientesService = {
 
   async archivar(id: string): Promise<Expediente> {
     return apiClient<Expediente>(`/expedientes/${id}/archivar`, {
+      method: "PATCH",
+    });
+  },
+
+  async desarchivar(id: string): Promise<Expediente> {
+    return apiClient<Expediente>(`/expedientes/${id}/desarchivar`, {
       method: "PATCH",
     });
   },
