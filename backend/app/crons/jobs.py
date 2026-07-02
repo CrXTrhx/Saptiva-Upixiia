@@ -100,6 +100,14 @@ def vencimiento_consumado() -> int:
                     db, case, CaseStatus.INCOMPLETE_EXPIRED, actor="cron",
                     descripcion="Documento ya validado vencio",
                 )
+            elif case.status_code == CaseStatus.ARCHIVED:
+                # Un expediente archivado se desarchiva solo cuando uno de sus
+                # documentos vence: vuelve a la vista activa como vencido.
+                case.archived_at = None
+                transition(
+                    db, case, CaseStatus.INCOMPLETE_EXPIRED, actor="cron",
+                    descripcion="Documento vencido, expediente desarchivado",
+                )
             registrar_evento(
                 db, case.id, EventType.STATUS_CHANGED,
                 "Documento vencido, solicitar renovado", actor="cron",
@@ -145,6 +153,44 @@ def inactividad() -> int:
                 notificados += 1
     print(f"[cron] inactividad: {notificados} recordatorios")
     return notificados
+
+
+def archivar_completados() -> int:
+    """Archiva solo los expedientes COMPLETOS tras settings.auto_archivar_dias.
+
+    El reloj corre desde completed_at (con updated_at como respaldo para expedientes
+    completados antes de que existiera la columna). Solo toca COMPLETE: los demas
+    estados nunca se archivan automaticamente.
+    """
+    limite = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        days=settings.auto_archivar_dias
+    )
+    archivados = 0
+    with db_session(user_label="cron") as db:
+        cases = list(
+            db.execute(
+                select(CaseFile).where(
+                    CaseFile.active_flag == 1,
+                    CaseFile.status_code == CaseStatus.COMPLETE,
+                    func.coalesce(CaseFile.completed_at, CaseFile.updated_at) < limite,
+                )
+            ).scalars()
+        )
+        for case in cases:
+            transition(
+                db, case, CaseStatus.ARCHIVED, actor="cron",
+                descripcion=f"Archivado automaticamente tras {settings.auto_archivar_dias} dias completo",
+            )
+            case.archived_at = dt.datetime.now(dt.timezone.utc)
+            db.flush()
+            registrar_evento(
+                db, case.id, EventType.CASE_ARCHIVED,
+                "Expediente archivado automaticamente", actor="cron",
+            )
+            ns.recompute(db, case)
+            archivados += 1
+    print(f"[cron] archivar_completados: {archivados} expedientes archivados")
+    return archivados
 
 
 def _purgar_archivo(db, doc: Document, job: str) -> bool:
@@ -247,6 +293,7 @@ _JOBS = {
     "vencimiento_proximo": vencimiento_proximo,
     "vencimiento_consumado": vencimiento_consumado,
     "inactividad": inactividad,
+    "archivar_completados": archivar_completados,
     "purgar_reemplazos": purgar_reemplazos,
     "purgar_otros": purgar_otros,
 }

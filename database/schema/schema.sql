@@ -298,6 +298,8 @@ CREATE TABLE case_file (
     -- Estado / control
     status_code         varchar(40)   NOT NULL DEFAULT 'CAPTURING' REFERENCES cat_case_status(code),
     cancellation_reason text,
+    completed_at        timestamptz,                       -- cuando se marco COMPLETO (reloj del auto-archivado)
+    archived_at         timestamptz,                       -- cuando se archivo (manual o automatico)
     assigned_user_id    uuid          REFERENCES app_user(id),
     -- Auditoria
     active_flag         smallint      NOT NULL DEFAULT 1 CHECK (active_flag IN (0,1)),
@@ -633,7 +635,10 @@ INSERT INTO cat_case_status_transition(from_code, to_code, label_es) VALUES
     ('INCOMPLETE_EXPIRED','RECEIVING','Reemplazo de documento vencido'),
     ('INCOMPLETE_EXPIRED','CANCELLED','Cancelacion'),
     ('COMPLETE','ARCHIVED','Archivar'),
-    ('COMPLETE','INCOMPLETE_EXPIRED','Vence un documento ya validado');
+    ('COMPLETE','INCOMPLETE_EXPIRED','Vence un documento ya validado'),
+    ('COMPLETE','RECEIVING','Documento rechazado, regresa a recepcion'),
+    ('ARCHIVED','COMPLETE','Desarchivar'),
+    ('ARCHIVED','INCOMPLETE_EXPIRED','Documento vencido en expediente archivado');
 
 INSERT INTO cat_document_type(code, label_es, is_checklist_item, validity_months, never_expires, expires_with_fiscal_year, uses_document_expiry, sort_order) VALUES
     ('OFFICIAL_ID',      'Identificacion oficial (INE/Pasaporte)', 1, NULL, 0, 0, 1, 1),

@@ -108,8 +108,13 @@ export type ClienteLite = {
 
 type Props = {
   cliente: ClienteLite | null | undefined; // requerido en uso normal
-  expedientes: Expediente[] | null | undefined; // SOLO los de este cliente
+  expedientes: Expediente[] | null | undefined; // SOLO los ACTIVOS de este cliente (sin archivados)
   loading?: boolean; // expedientes del cliente cargándose (carga diferida)
+  // Archivados: carga diferida separada. `null` = aún no solicitados; el host los
+  // trae cuando el usuario expande la sección (onCargarArchivados) y NO antes.
+  archivados?: Expediente[] | null;
+  loadingArchivados?: boolean;
+  onCargarArchivados?: () => void;
   onBack: () => void; // host → vuelve a P2
   onAbrirExpediente: (exp: Expediente) => void; // host → navega a la P5 EXISTENTE
   onNuevaVenta?: (cliente: ClienteLite) => void; // host → navega a P3 existente
@@ -160,6 +165,9 @@ export default function ClienteDetalle({
   cliente,
   expedientes,
   loading = false,
+  archivados,
+  loadingArchivados = false,
+  onCargarArchivados,
   onBack,
   onAbrirExpediente,
   onNuevaVenta,
@@ -167,6 +175,7 @@ export default function ClienteDetalle({
   const [search, setSearch] = useState("");
   const [filterEstado, setFilterEstado] = useState<"" | Estado>("");
   const [filterOperacion, setFilterOperacion] = useState<"" | TipoOperacion>("");
+  const [archivadosOpen, setArchivadosOpen] = useState(false);
   // TODO conectar rango de fechas (filtro decorativo por ahora)
 
   const lista = useMemo<Expediente[]>(
@@ -174,12 +183,27 @@ export default function ClienteDetalle({
     [expedientes],
   );
 
-  // STATS sobre TODOS los expedientes del cliente (no los filtrados)
+  // Nº de archivados: del agregado ya calculado por el backend (conteoPorEstado), así
+  // el badge se muestra SIN pedir la lista. Los expedientes solo se cargan al expandir.
+  const archivadosCount = cliente?.conteoPorEstado?.ARCHIVED ?? 0;
+  const archivadosLista = useMemo<Expediente[]>(
+    () => (Array.isArray(archivados) ? archivados : []),
+    [archivados],
+  );
+
+  // STATS del cliente. La DISTRIBUCIÓN excluye archivados (viven en su sección
+  // aparte, para no reintroducir ruido); el TOTAL sí los cuenta (histórico completo).
   const stats = useMemo(() => {
+    const stripArchived = (d: Partial<Record<Estado, number>>) => {
+      const rest: Partial<Record<Estado, number>> = { ...d };
+      delete rest.ARCHIVED;
+      return rest;
+    };
+
     // La ficha compacta agrupada por RFC ya contiene estos agregados. Se muestran
     // mientras llega la lista diferida para evitar KPIs temporalmente en cero.
     if (lista.length === 0 && cliente?.totalExpedientes != null) {
-      const distribucion = cliente.conteoPorEstado ?? {};
+      const distribucion = stripArchived(cliente.conteoPorEstado ?? {});
       const activos = (Object.entries(distribucion) as [Estado, number][])
         .filter(([estado]) => !TERMINALES.includes(estado))
         .reduce((total, [, cantidad]) => total + cantidad, 0);
@@ -192,8 +216,9 @@ export default function ClienteDetalle({
       };
     }
 
-    const total = lista.length;
-    const montoTotal = lista.reduce((s, e) => s + (e.montoEstimado ?? 0), 0);
+    const total = lista.length + archivadosCount;
+    const montoTotal =
+      cliente?.montoTotal ?? lista.reduce((s, e) => s + (e.montoEstimado ?? 0), 0);
     const distribucion = lista.reduce(
       (acc, e) => {
         acc[e.estado] = (acc[e.estado] ?? 0) + 1;
@@ -206,7 +231,7 @@ export default function ClienteDetalle({
       (e) => e.estado === "INCOMPLETE_EXPIRED",
     ).length;
     return { total, montoTotal, distribucion, activos, urgentes };
-  }, [cliente, lista]);
+  }, [cliente, lista, archivadosCount]);
 
   // FILTRADOS: estado + operación + búsqueda; ordenados por prioridad de estado
   const filtrados = useMemo(() => {
@@ -231,6 +256,14 @@ export default function ClienteDetalle({
   // Carga progresiva: no renderizamos los 40 de golpe; mostramos N y "Ver más".
   const { mostrados, hayMas, restantes, verMas, pageSize } =
     usePaginacionRender(filtrados, 12);
+  // Render progresivo de la sección de archivados (independiente del principal).
+  const {
+    mostrados: mostradosArch,
+    hayMas: hayMasArch,
+    restantes: restantesArch,
+    verMas: verMasArch,
+    pageSize: pageSizeArch,
+  } = usePaginacionRender(archivadosLista, 10);
 
   function limpiarFiltros() {
     setSearch("");
@@ -255,8 +288,9 @@ export default function ClienteDetalle({
     { value: "VEHICLE_SALE", label: "Venta de vehículo" },
   ];
 
-  // Estado vacío / sin cliente
-  const sinDatos = !cliente || lista.length === 0;
+  // Estado vacío / sin cliente. Un cliente que SOLO tiene archivados no está vacío:
+  // su sección de archivados sí muestra contenido.
+  const sinDatos = !cliente || (lista.length === 0 && archivadosCount === 0);
 
   return (
     <div className="min-h-dvh" style={{ backgroundColor: COLOR.bg, color: COLOR.text }}>
@@ -535,7 +569,9 @@ export default function ClienteDetalle({
                       <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
                         {sinDatos
                           ? "Este cliente no tiene expedientes todavía."
-                          : "No hay expedientes de este cliente que coincidan con los filtros."}
+                          : lista.length === 0
+                            ? "Sin expedientes activos. Revisa la sección de archivados abajo."
+                            : "No hay expedientes de este cliente que coincidan con los filtros."}
                       </p>
                     </div>
                   ) : (
@@ -622,7 +658,9 @@ export default function ClienteDetalle({
                     <p className="text-[13px]" style={{ color: COLOR.muted2 }}>
                       {sinDatos
                         ? "Este cliente no tiene expedientes todavía."
-                        : "No hay expedientes de este cliente que coincidan con los filtros."}
+                        : lista.length === 0
+                          ? "Sin expedientes activos. Revisa la sección de archivados abajo."
+                          : "No hay expedientes de este cliente que coincidan con los filtros."}
                     </p>
                   </div>
                 ) : (
@@ -709,6 +747,123 @@ export default function ClienteDetalle({
                 </div>
               )}
             </div>
+
+            {/* 7. ARCHIVADOS — sección aparte, se cargan solo al expandir */}
+            {archivadosCount > 0 && (
+              <div
+                className="mt-5 rounded-2xl overflow-hidden"
+                style={{ backgroundColor: COLOR.surface, border: `1px solid ${COLOR.border}` }}
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setArchivadosOpen((open) => {
+                      if (!open) onCargarArchivados?.();
+                      return !open;
+                    })
+                  }
+                  aria-expanded={archivadosOpen}
+                  className="w-full flex items-center justify-between px-5 sm:px-6 py-4 cursor-pointer transition-colors"
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                >
+                  <span className="flex items-center gap-2 text-[13px] font-medium" style={{ color: COLOR.text2 }}>
+                    <Archive size={15} style={{ color: COLOR.muted }} />
+                    Archivados
+                    <span
+                      className="inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      style={{ backgroundColor: COLOR.borderInner, color: COLOR.muted }}
+                    >
+                      {archivadosCount}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      color: COLOR.muted2,
+                      transform: archivadosOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                    }}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {archivadosOpen && (
+                    <motion.div
+                      key="archivados-body"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: EASE_OUT }}
+                      style={{ overflow: "hidden", borderTop: `1px solid ${COLOR.borderInner}` }}
+                    >
+                      {loadingArchivados ? (
+                        <div className="px-5 sm:px-6 py-8 flex items-center justify-center gap-2 text-[12px]" style={{ color: COLOR.muted2 }}>
+                          <span className="h-3.5 w-3.5 rounded-full animate-spin" style={{ border: `2px solid ${COLOR.border}`, borderTopColor: COLOR.accent }} />
+                          Cargando archivados…
+                        </div>
+                      ) : archivadosLista.length === 0 ? (
+                        <div className="px-5 sm:px-6 py-8 text-center text-[13px]" style={{ color: COLOR.muted2 }}>
+                          No hay expedientes archivados.
+                        </div>
+                      ) : (
+                        <>
+                          {mostradosArch.map((exp, i) => (
+                            <div
+                              key={exp.id}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Ver expediente archivado ${exp.codigo ?? ""}`}
+                              onClick={() => onAbrirExpediente(exp)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  onAbrirExpediente(exp);
+                                }
+                              }}
+                              className="flex items-center gap-3 flex-wrap px-5 sm:px-6 py-3 cursor-pointer transition-colors"
+                              style={{ borderTop: i === 0 ? "none" : `1px solid ${COLOR.borderInner}` }}
+                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                            >
+                              <span className="font-mono tabular-nums text-[13px] truncate" style={{ color: COLOR.muted, minWidth: 120 }}>
+                                {exp.codigo || "—"}
+                              </span>
+                              <span className="text-[13px] truncate flex-1 min-w-[120px]" style={{ color: COLOR.text2 }}>
+                                {TIPO_OPERACION_LABEL[exp.tipoOperacion] ?? "—"}
+                              </span>
+                              <span className="text-[13px] tabular-nums" style={{ color: COLOR.muted }}>
+                                {formatDate(exp.fechaCreacion)}
+                              </span>
+                              <span className="text-[13px] font-medium tabular-nums" style={{ color: COLOR.text }}>
+                                {formatMoney(exp.montoEstimado)}
+                              </span>
+                              <Badge estado={exp.estado} small />
+                            </div>
+                          ))}
+                          {hayMasArch && (
+                            <div className="flex justify-center p-3" style={{ borderTop: `1px solid ${COLOR.borderInner}` }}>
+                              <button
+                                type="button"
+                                onClick={verMasArch}
+                                className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-medium cursor-pointer transition-colors"
+                                style={{ backgroundColor: COLOR.surface, border: `1px solid ${COLOR.border}`, color: COLOR.text2 }}
+                                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = COLOR.hoverRow)}
+                                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = COLOR.surface)}
+                              >
+                                <ChevronDown size={14} />
+                                Ver {Math.min(pageSizeArch, restantesArch)} más
+                                <span style={{ color: COLOR.muted2 }}>· {restantesArch} restantes</span>
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </>
         )}
       </main>

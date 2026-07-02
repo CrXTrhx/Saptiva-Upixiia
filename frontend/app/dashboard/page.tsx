@@ -54,6 +54,11 @@ function DashboardContent() {
   const [selectedCliente, setSelectedCliente] = useState<ClienteResumen | null>(null);
   const [clienteExpedientes, setClienteExpedientes] = useState<Expediente[]>([]);
   const [loadingClienteExpedientes, setLoadingClienteExpedientes] = useState(false);
+  // Archivados del cliente: carga diferida (solo al expandir su sección). El ref evita
+  // repetir el fetch y descartar respuestas si se cambió de cliente entre tanto.
+  const [clienteArchivados, setClienteArchivados] = useState<Expediente[] | null>(null);
+  const [loadingArchivados, setLoadingArchivados] = useState(false);
+  const archivadosReqRef = useRef<string | null>(null);
 
   const [loadingConteos, setLoadingConteos] = useState(true);
 
@@ -161,8 +166,33 @@ function DashboardContent() {
   const handleSelectCliente = useCallback((cliente: ClienteResumen) => {
     setLoadingClienteExpedientes(true);
     setClienteExpedientes([]);
+    // Resetea la sección de archivados para el nuevo cliente (se recargará al expandir).
+    archivadosReqRef.current = null;
+    setClienteArchivados(null);
+    setLoadingArchivados(false);
     setSelectedCliente(cliente);
   }, []);
+
+  // Carga diferida de archivados: se dispara al expandir la sección. Idempotente por
+  // cliente (el ref recuerda para quién ya se pidió) y descarta respuestas tardías si
+  // el usuario cambió de cliente.
+  const handleCargarArchivados = useCallback(() => {
+    const cli = selectedCliente;
+    if (!cli || archivadosReqRef.current === cli.id) return;
+    archivadosReqRef.current = cli.id;
+    setLoadingArchivados(true);
+    expedientesService
+      .getExpedientesArchivadosDeCliente(cli.id)
+      .then((data) => {
+        if (archivadosReqRef.current === cli.id) setClienteArchivados(data);
+      })
+      .catch(() => {
+        if (archivadosReqRef.current === cli.id) setClienteArchivados([]);
+      })
+      .finally(() => {
+        if (archivadosReqRef.current === cli.id) setLoadingArchivados(false);
+      });
+  }, [selectedCliente]);
 
   const handleVerMas = useCallback(() => {
     if (loadingMas || expedientes.length >= totalExpedientes) return;
@@ -200,6 +230,9 @@ function DashboardContent() {
   const handleCloseDetalle = useCallback(() => {
     setSelectedCliente(null);
     setClienteExpedientes([]);
+    archivadosReqRef.current = null;
+    setClienteArchivados(null);
+    setLoadingArchivados(false);
   }, []);
 
   const hasFilters = !!(
@@ -218,6 +251,9 @@ function DashboardContent() {
         cliente={selectedCliente}
         expedientes={clienteExpedientes}
         loading={loadingClienteExpedientes}
+        archivados={clienteArchivados}
+        loadingArchivados={loadingArchivados}
+        onCargarArchivados={handleCargarArchivados}
         onBack={handleCloseDetalle}
         onAbrirExpediente={(exp) => router.push(`/expedientes/${exp.id}`)}
         onNuevaVenta={(cli) => {

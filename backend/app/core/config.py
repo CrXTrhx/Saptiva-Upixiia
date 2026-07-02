@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # other: documentos clasificados OTHER y rechazados (basura que no es ninguno de los 4 tipos).
     retencion_reemplazos_dias: int = 7
     retencion_other_dias: int = 7
+    # Auto-archivado: dias que un expediente COMPLETO permanece visible antes de que el
+    # cron lo archive solo. El reloj corre desde completed_at.
+    auto_archivar_dias: int = 15
     r2_account_id: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""

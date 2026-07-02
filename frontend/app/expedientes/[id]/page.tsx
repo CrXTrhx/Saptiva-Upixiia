@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft, ChevronRight, Check, X, Clock, AlertTriangle,
   FileText, Upload, MessageSquare, Mail, Phone, Pencil, Send,
-  Archive, Ban, ArrowRight, Sparkles, Plus, RefreshCw, CornerUpLeft,
+  Archive, ArchiveRestore, Ban, ArrowRight, Sparkles, Plus, RefreshCw, CornerUpLeft,
   ChevronDown, MessageCircle, Copy, Loader2, Trash2, Inbox, RotateCcw,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -1186,18 +1186,57 @@ function DetalleContent() {
     try { await expedientesService.cancelarExpediente(id, motivo); showToast("Expediente cancelado"); } catch { setDetalle(prev); showToast("Error al cancelar expediente"); }
   }
 
+  // Va por runMutation (igual que archivar/desarchivar) para bloquear el sondeo en
+  // curso: evita que una respuesta vieja de getExpedienteDetalle revierta el estado
+  // optimista COMPLETO, y refresca con el estado autoritativo (y completed_at) al terminar.
   async function handleMarcarCompleto() {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "COMPLETE" } });
-    try { await expedientesService.marcarCompleto(id); showToast("Expediente marcado como completo"); } catch { setDetalle(prev); showToast("Error al marcar como completo"); }
+    await runMutation(async () => {
+      setDetalle({ ...prev, expediente: { ...prev.expediente, estado: "COMPLETE" } });
+      try {
+        await expedientesService.marcarCompleto(id);
+        showToast("Expediente marcado como completo");
+      } catch {
+        setDetalle(prev);
+        showToast("Error al marcar como completo");
+      }
+    });
   }
 
+  // Va por runMutation para bloquear el sondeo en curso (evita que una respuesta vieja
+  // revierta el estado optimista) y refrescar con el estado autoritativo al terminar.
   async function handleArchivar() {
     if (!detalle) return;
     const prev = { ...detalle };
-    setDetalle({ ...detalle, expediente: { ...detalle.expediente, estado: "ARCHIVED" } });
-    try { await expedientesService.archivar(id); showToast("Expediente archivado"); } catch { setDetalle(prev); showToast("Error al archivar expediente"); }
+    await runMutation(async () => {
+      setDetalle({ ...prev, expediente: { ...prev.expediente, estado: "ARCHIVED" } });
+      try {
+        await expedientesService.archivar(id);
+        showToast("Expediente archivado");
+      } catch {
+        setDetalle(prev);
+        showToast("Error al archivar expediente");
+      }
+    });
+  }
+
+  // Desarchivar: el backend regresa el expediente a COMPLETO y reinicia el reloj de
+  // auto-archivado. Igual que archivar, pasa por runMutation (bloquea el sondeo y
+  // refresca al final con el estado autoritativo y el evento del timeline).
+  async function handleDesarchivar() {
+    if (!detalle) return;
+    const prev = { ...detalle };
+    await runMutation(async () => {
+      setDetalle({ ...prev, expediente: { ...prev.expediente, estado: "COMPLETE" } });
+      try {
+        await expedientesService.desarchivar(id);
+        showToast("Expediente desarchivado");
+      } catch {
+        setDetalle(prev);
+        showToast("Error al desarchivar expediente");
+      }
+    });
   }
 
   async function handleRestaurarExpediente() {
@@ -1205,9 +1244,11 @@ function DetalleContent() {
     const prev = { ...detalle };
     setRestaurarExpedienteLoading(true);
     try {
-      await expedientesService.restaurarExpediente(id);
-      const fresh = await expedientesService.getExpedienteDetalle(id);
-      if (fresh) setDetalle(fresh);
+      // Via runMutation para bloquear el sondeo en curso (evita que una respuesta vieja
+      // vuelva a pintar CANCELADO) y refrescar con el estado autoritativo al terminar.
+      await runMutation(async () => {
+        await expedientesService.restaurarExpediente(id);
+      });
       showToast("Expediente restaurado");
     } catch (e) {
       console.error("Error al restaurar expediente:", e);
@@ -1262,6 +1303,12 @@ function DetalleContent() {
   const validadosCount = checklist.filter((c) => c.estado === "VALIDATED").length;
   const estadoCfg = estadoGlobalConfig[exp.estado];
   const esCancelado = exp.estado === "CANCELLED";
+  const esArchivado = exp.estado === "ARCHIVED";
+  // Archivado y cancelado son de solo lectura: no se validan/rechazan/reemplazan/suben
+  // documentos, ni se agregan notas ni se consulta al asistente. Un archivado se
+  // reactiva con "Desarchivar" (o solo, al vencer un documento); un cancelado, con
+  // "Restaurar".
+  const esSoloLectura = esCancelado || esArchivado;
 
   // ═══════════════════════════════════════
   // RENDER — MAIN VIEW
@@ -1331,6 +1378,16 @@ function DetalleContent() {
           </div>
         )}
 
+        {/* BANNER ARCHIVADO */}
+        {esArchivado && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ backgroundColor: "#EFECE9", border: "1px solid #E0DBD6" }}>
+            <Archive size={14} strokeWidth={1.75} style={{ color: "#7A7470", flexShrink: 0 }} />
+            <p className="text-[13px] font-medium" style={{ color: "#7A7470" }}>
+              Este expediente está archivado y es de solo lectura. Desarchívalo para volver a editarlo.
+            </p>
+          </div>
+        )}
+
         {/* 2. BLOQUE A — FICHA */}
         <Card className="p-4 sm:p-6" hover={false} delay={0.02}>
           <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
@@ -1383,10 +1440,10 @@ function DetalleContent() {
               )}
             </div>
             <div className="flex w-full flex-col gap-2 items-stretch sm:w-auto sm:min-w-[180px]">
-              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esCancelado}>Editar datos</ActionBtn>
+              <ActionBtn icon={Pencil} onClick={() => setModal({ type: "editar" })} disabled={esSoloLectura}>Editar datos</ActionBtn>
               <ReenviarInstruccionesMenu
                 expediente={exp}
-                disabled={esCancelado}
+                disabled={esSoloLectura}
                 onToast={showToast}
                 onAbrirCorreo={() => abrirCorreoPreview()}
                 onCopiarInstrucciones={async () => (await expedientesService.getInstrucciones(id)).texto}
@@ -1410,6 +1467,7 @@ function DetalleContent() {
                 <ActionBtn icon={Ban} danger onClick={() => setModal({ type: "cancelar" })}>Cancelar expediente</ActionBtn>
               )}
               {exp.estado === "COMPLETE" && <ActionBtn icon={Archive} onClick={handleArchivar}>Archivar</ActionBtn>}
+              {esArchivado && <ActionBtn icon={ArchiveRestore} onClick={handleDesarchivar}>Desarchivar</ActionBtn>}
             </div>
           </div>
         </Card>
@@ -1510,7 +1568,7 @@ function DetalleContent() {
                 >
                   Detalle: {DOCUMENTO_REQUERIDO_LABELS[detalleDoc.tipo] ?? detalleDoc.tipo}
                 </SectionTitle>
-                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
+                <DocCard doc={detalleDoc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esSoloLectura} />
               </Card>
             </motion.div>
           )}
@@ -1528,10 +1586,10 @@ function DetalleContent() {
                 icon={FileText}
                 right={
                   <button
-                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
-                    disabled={!puedeSubirDocumento || esCancelado}
+                    onClick={() => puedeSubirDocumento && !esSoloLectura && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esSoloLectura}
                     className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md bg-white cursor-pointer transition-colors disabled:cursor-not-allowed"
-                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9" }}
+                    style={{ border: "1px solid #E5DED6", color: puedeSubirDocumento && !esSoloLectura ? "#5C5957" : "#B5AFA9" }}
                   >
                     <Plus size={12} strokeWidth={2} /> Subir documento manual
                   </button>
@@ -1543,12 +1601,12 @@ function DetalleContent() {
                 <div className="text-center py-8">
                   <p className="text-[12px] mb-3" style={{ color: "#989396" }}>Aún no hay documentos recibidos</p>
                   <button
-                    onClick={() => puedeSubirDocumento && !esCancelado && setModal({ type: "subir", modo: "nuevo" })}
-                    disabled={!puedeSubirDocumento || esCancelado}
+                    onClick={() => puedeSubirDocumento && !esSoloLectura && setModal({ type: "subir", modo: "nuevo" })}
+                    disabled={!puedeSubirDocumento || esSoloLectura}
                     className="text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer disabled:cursor-not-allowed"
                     style={{
-                      backgroundColor: puedeSubirDocumento && !esCancelado ? "#FAF6F1" : "#F0F0F0",
-                      color: puedeSubirDocumento && !esCancelado ? "#5C5957" : "#B5AFA9",
+                      backgroundColor: puedeSubirDocumento && !esSoloLectura ? "#FAF6F1" : "#F0F0F0",
+                      color: puedeSubirDocumento && !esSoloLectura ? "#5C5957" : "#B5AFA9",
                       border: "1px solid #F0EBE5",
                     }}
                   >
@@ -1558,7 +1616,7 @@ function DetalleContent() {
               ) : (
                 <div className="space-y-3">
                   {activeDocumentos.map((doc) => (
-                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esCancelado} />
+                    <DocCard key={doc.id} doc={doc} onValidar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "validate" })} onRechazar={(d) => setModal({ type: "validar-rechazar", documento: d, mode: "reject" })} onReemplazar={(d) => setModal({ type: "subir", modo: "reemplazo", documentoId: d.id })} onDescartar={(d) => handleDescartarDoc(d.id)} onOpen={handleOpenPreview} onVerVersionAnterior={handleVerVersionAnterior} readOnly={esSoloLectura} />
                   ))}
                 </div>
               )}
@@ -1577,7 +1635,7 @@ function DetalleContent() {
                   <button
                     key={q}
                     onClick={() => handleConsultarLLM(q)}
-                    disabled={llmLoading || esCancelado}
+                    disabled={llmLoading || esSoloLectura}
                     className="w-full flex items-center justify-between gap-2 text-[13px] px-3.5 py-2.5 rounded-lg cursor-pointer transition-colors disabled:opacity-50"
                     style={{ backgroundColor: "#FAF6F1", border: "1px solid #E5DED6", color: "#5C5957" }}
                     onMouseEnter={e => { if (!llmLoading) { e.currentTarget.style.borderColor = "#F19B42"; e.currentTarget.style.color = "#302F2D"; } }}
@@ -1596,20 +1654,20 @@ function DetalleContent() {
               <div className="mb-4">
                 <textarea
                   rows={2}
-                  placeholder={esCancelado ? "No se pueden agregar notas a un expediente cancelado" : "Escribe una nota interna…"}
+                  placeholder={esCancelado ? "No se pueden agregar notas a un expediente cancelado" : esArchivado ? "No se pueden agregar notas a un expediente archivado" : "Escribe una nota interna…"}
                   value={nuevaNota}
-                  onChange={(e) => !esCancelado && setNuevaNota(e.target.value)}
-                  disabled={esCancelado}
+                  onChange={(e) => !esSoloLectura && setNuevaNota(e.target.value)}
+                  disabled={esSoloLectura}
                   className="w-full text-[13px] px-3 py-2 rounded-md resize-none bg-white transition-colors disabled:cursor-not-allowed"
-                  style={{ border: "1px solid #E5DED6", color: esCancelado ? "#B5AFA9" : "#302F2D", outline: "none", backgroundColor: esCancelado ? "#F9F8F7" : "#FFFFFF" }}
-                  onFocus={(e) => { if (!esCancelado) e.currentTarget.style.borderColor = "#F19B42"; }}
+                  style={{ border: "1px solid #E5DED6", color: esSoloLectura ? "#B5AFA9" : "#302F2D", outline: "none", backgroundColor: esSoloLectura ? "#F9F8F7" : "#FFFFFF" }}
+                  onFocus={(e) => { if (!esSoloLectura) e.currentTarget.style.borderColor = "#F19B42"; }}
                   onBlur={(e) => e.currentTarget.style.borderColor = "#E5DED6"}
                 />
                 <button
-                  onClick={() => { if (nuevaNota.trim() && !esCancelado) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
-                  disabled={!nuevaNota.trim() || notaLoading || esCancelado}
+                  onClick={() => { if (nuevaNota.trim() && !esSoloLectura) { handleAgregarNota(nuevaNota.trim()); setNuevaNota(""); } }}
+                  disabled={!nuevaNota.trim() || notaLoading || esSoloLectura}
                   className="mt-2 flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-md cursor-pointer transition-colors disabled:cursor-not-allowed"
-                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading && !esCancelado ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading && !esCancelado ? "#FFFFFF" : "#B5AFA9" }}
+                  style={{ backgroundColor: nuevaNota.trim() && !notaLoading && !esSoloLectura ? "#302F2D" : "#EFECE9", color: nuevaNota.trim() && !notaLoading && !esSoloLectura ? "#FFFFFF" : "#B5AFA9" }}
                 >
                   <Plus size={12} strokeWidth={2} /> Agregar nota
                 </button>
@@ -1674,6 +1732,21 @@ function DetalleContent() {
                 <p className="text-[11px]" style={{ color: "#7A7470" }}>No es posible realizar validaciones sobre este expediente</p>
               </div>
             </div>
+          ) : esArchivado ? (
+            <div className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap" style={{ backgroundColor: "#EFECE9" }}>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-9 w-9 rounded-full shrink-0" style={{ backgroundColor: "#B5AFA9" }}>
+                  <Archive size={16} strokeWidth={2} color="white" />
+                </div>
+                <div>
+                  <p className="text-[14px] font-semibold" style={{ color: "#7A7470" }}>Expediente archivado</p>
+                  <p className="text-[11px]" style={{ color: "#989396" }}>Solo lectura. Desarchívalo para volver a editarlo.</p>
+                </div>
+              </div>
+              <button onClick={handleDesarchivar} className="flex items-center gap-2 text-[12px] font-medium px-4 py-2 rounded-md bg-white cursor-pointer transition-colors" style={{ border: "1px solid #E5DED6", color: "#302F2D" }}>
+                <ArchiveRestore size={13} strokeWidth={1.75} /> Desarchivar expediente
+              </button>
+            </div>
           ) : exp.estado === "COMPLETE" ? (
             <div className="rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap" style={{ backgroundColor: "#ECF0E8" }}>
               <div className="flex items-center gap-3">
@@ -1713,7 +1786,7 @@ function DetalleContent() {
                 whileHover={checklistCompleto ? { scale: 1.01 } : undefined}
                 whileTap={checklistCompleto ? { scale: 0.98 } : undefined}
               >
-                <Check size={15} strokeWidth={2.25} /> Marcar como validado
+                <Check size={15} strokeWidth={2.25} /> Completar expediente
               </motion.button>
             </div>
           )}
@@ -1879,16 +1952,20 @@ function DetalleContent() {
                 >
                   Volver a la más nueva
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleRestaurarVersion(versionAnteriorDe.id)}
-                  disabled={restaurarLoading}
-                  className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium text-white transition-colors disabled:cursor-not-allowed"
-                  style={{ backgroundColor: restaurarLoading ? "#E7C9A0" : "#F19B42" }}
-                >
-                  <CornerUpLeft size={13} strokeWidth={2} />
-                  {restaurarLoading ? "Restaurando…" : "Quedarme con esta versión"}
-                </button>
+                {/* Restaurar una version es una mutacion: no disponible en solo lectura
+                    (archivado/cancelado). El expediente sigue siendo consultable. */}
+                {!esSoloLectura && (
+                  <button
+                    type="button"
+                    onClick={() => { if (!esSoloLectura) handleRestaurarVersion(versionAnteriorDe.id); }}
+                    disabled={restaurarLoading}
+                    className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12px] font-medium text-white transition-colors disabled:cursor-not-allowed"
+                    style={{ backgroundColor: restaurarLoading ? "#E7C9A0" : "#F19B42" }}
+                  >
+                    <CornerUpLeft size={13} strokeWidth={2} />
+                    {restaurarLoading ? "Restaurando…" : "Quedarme con esta versión"}
+                  </button>
+                )}
               </div>
             </div>
           </Modal>
@@ -1978,7 +2055,7 @@ function DetalleContent() {
                       <FileText size={11} strokeWidth={1.75} /> Ver
                     </button>
                   )}
-                  {!esCancelado && (
+                  {!esSoloLectura && (
                     <button onClick={() => handleRestaurarDescartado(doc.id)} className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-md cursor-pointer transition-colors" style={{ backgroundColor: "#ECF0E8", color: "#536648" }}>
                       <RotateCcw size={11} strokeWidth={2} /> Restaurar
                     </button>
