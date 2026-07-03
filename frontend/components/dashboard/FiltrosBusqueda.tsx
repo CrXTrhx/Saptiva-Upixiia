@@ -5,15 +5,14 @@ import type {
   Estado,
   ExpedienteQuery,
   DocumentoRequerido,
-  RangoFecha,
 } from "@/lib/types";
 import {
-  ESTADOS,
   DOCUMENTOS_REQUERIDOS,
   DOCUMENTO_REQUERIDO_LABELS,
 } from "@/lib/types";
-import { statusColorMap } from "@/lib/status";
+import { STATUS_DISPLAY_ORDER, statusColorMap } from "@/lib/status";
 import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
 import { X } from "lucide-react";
 import Link from "next/link";
 
@@ -24,8 +23,15 @@ type Props = {
   onChange: (query: ExpedienteQuery) => void;
 };
 
-const FECHA_PRESETS: { value: FechaPreset | ""; label: string }[] = [
-  { value: "", label: "Fecha" },
+// Clases compartidas del trigger de los 3 filtros (las mismas que llevaba el
+// <select> nativo; el panel de opciones lo estiliza el componente Select).
+const FILTRO_TRIGGER_CLASS =
+  "w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)]";
+
+// La opción "" limpia el filtro (equivale al "Estado"/"Fecha"/"Documento" del
+// select nativo, pero con un label explícito dentro del panel).
+const OPCIONES_FECHA: { value: FechaPreset | ""; label: string }[] = [
+  { value: "", label: "Cualquier fecha" },
   { value: "hoy", label: "Hoy" },
   { value: "7dias", label: "Últimos 7 días" },
   { value: "30dias", label: "Últimos 30 días" },
@@ -91,68 +97,64 @@ export function FiltrosBusqueda({ query, onChange }: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:flex lg:shrink-0">
-      <select
-        aria-label="Filtrar por estado"
+      <Select
+        ariaLabel="Filtrar por estado"
+        placeholder="Estado"
         value={query.estado ?? ""}
-        onChange={(e) =>
+        onChange={(v) =>
           onChange({
             ...query,
-            estado: (e.target.value as Estado) || undefined,
+            estado: (v as Estado) || undefined,
           })
         }
-        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
-      >
-        <option value="">Estado</option>
-        {ESTADOS.map((e) => (
-          <option key={e} value={e}>
-            {statusColorMap[e].label}
-          </option>
-        ))}
-      </select>
+        options={[
+          { value: "", label: "Todos los estados" },
+          ...STATUS_DISPLAY_ORDER.map((e) => ({
+            value: e,
+            label: statusColorMap[e].label,
+            dot: statusColorMap[e].dot,
+          })),
+        ]}
+        className={FILTRO_TRIGGER_CLASS}
+      />
 
-      <select
-        aria-label="Filtrar por fecha"
+      <Select
+        ariaLabel="Filtrar por fecha"
+        placeholder="Fecha"
         value={
           query.rangoFecha && "preset" in query.rangoFecha
             ? query.rangoFecha.preset
             : ""
         }
-        onChange={(e) =>
+        onChange={(v) =>
           onChange({
             ...query,
-            rangoFecha: e.target.value
-              ? { preset: e.target.value as FechaPreset }
-              : undefined,
+            rangoFecha: v ? { preset: v as FechaPreset } : undefined,
           })
         }
-        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
-      >
-        {FECHA_PRESETS.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+        options={OPCIONES_FECHA}
+        className={FILTRO_TRIGGER_CLASS}
+      />
 
-      <select
-        aria-label="Filtrar por documento faltante"
+      <Select
+        ariaLabel="Filtrar por documento faltante"
+        placeholder="Documento"
         value={query.documentoFaltante ?? ""}
-        onChange={(e) =>
+        onChange={(v) =>
           onChange({
             ...query,
-            documentoFaltante:
-              (e.target.value as DocumentoRequerido) || undefined,
+            documentoFaltante: (v as DocumentoRequerido) || undefined,
           })
         }
-        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base sm:text-sm text-[var(--color-text)] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[var(--color-accent)] hover:border-[var(--color-muted)] cursor-pointer"
-      >
-        <option value="">Documento</option>
-        {DOCUMENTOS_REQUERIDOS.map((d) => (
-          <option key={d} value={d}>
-            {DOCUMENTO_REQUERIDO_LABELS[d]}
-          </option>
-        ))}
-      </select>
+        options={[
+          { value: "", label: "Todos los documentos" },
+          ...DOCUMENTOS_REQUERIDOS.map((d) => ({
+            value: d,
+            label: DOCUMENTO_REQUERIDO_LABELS[d],
+          })),
+        ]}
+        className={FILTRO_TRIGGER_CLASS}
+      />
       </div>
     </div>
 

@@ -19,6 +19,7 @@ import type {
   MotivoRechazoCategoria,
 } from "@/lib/types";
 import { DOCUMENTO_REQUERIDO_LABELS, CANAL_LABELS } from "@/lib/types";
+import { Select } from "@/components/ui/Select";
 
 // =============================================================================
 // P8 — Modal Validar / Rechazar Documento
@@ -393,17 +394,15 @@ export default function ValidarRechazarModal({
                   >
                     <div className="mt-1 rounded-xl p-3.5" style={{ backgroundColor: "#FAF6F1", border: "1px solid #F0EBE5" }}>
                       <h4 className="mb-2 text-[13px] font-semibold" style={{ color: "#9C4B2E" }}>Motivo de rechazo</h4>
-                      <select
+                      <Select
+                        ariaLabel="Motivo de rechazo"
+                        placeholder="Selecciona un motivo…"
                         value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value as MotivoRechazoCategoria | "")}
-                        className="w-full cursor-pointer rounded-md bg-white px-2.5 py-2 text-[12px]"
-                        style={{ border: "1px solid #E5DED6", color: rejectReason ? "#302F2D" : "#989396", outline: "none" }}
-                      >
-                        <option value="" disabled>Selecciona un motivo…</option>
-                        {motivoOptions.map((m) => (
-                          <option key={m.value} value={m.value}>{m.label}</option>
-                        ))}
-                      </select>
+                        onChange={(v) => setRejectReason(v as MotivoRechazoCategoria | "")}
+                        options={motivoOptions}
+                        className="w-full rounded-md bg-white px-2.5 py-2 text-[12px] focus:outline-2 focus:outline-offset-0 focus:outline-[#F19B42]"
+                        style={{ border: "1px solid #E5DED6", color: rejectReason ? "#302F2D" : "#989396" }}
+                      />
 
                       <label className="mb-1 mt-3 block text-[11px] font-medium" style={{ color: "#5C5957" }}>
                         Describe brevemente qué debe corregir el cliente

@@ -62,6 +62,12 @@ function DashboardContent() {
 
   const [loadingConteos, setLoadingConteos] = useState(true);
 
+  // Backend inaccesible (p. ej. no está corriendo): en vez de dejar promesas
+  // rechazadas sin manejar (que el overlay de Next reporta como errores), se
+  // muestra un banner con opción de reintentar. Cualquier fetch que vuelva a
+  // funcionar lo limpia.
+  const [errorConexion, setErrorConexion] = useState(false);
+
   // Caché independiente por vista y filtros. La identidad de cliente sigue siendo el
   // RFC que entrega /clientes; aquí solo evitamos solicitudes repetidas al alternar.
   const clientesCache = useRef<Map<string, ClienteResumen[]>>(new Map());
@@ -76,11 +82,15 @@ function DashboardContent() {
 
   // Conteos + huérfanos pendientes en UNA sola request (antes eran 2).
   useEffect(() => {
-    expedientesService.getDashboardResumen().then((r) => {
-      setConteos(r.conteos);
-      setHuerfanos(r.huerfanosPendientes);
-      setLoadingConteos(false);
-    });
+    expedientesService
+      .getDashboardResumen()
+      .then((r) => {
+        setConteos(r.conteos);
+        setHuerfanos(r.huerfanosPendientes);
+        setErrorConexion(false);
+      })
+      .catch(() => setErrorConexion(true))
+      .finally(() => setLoadingConteos(false));
   }, []);
 
   // Vista "Por cliente": pide la lista agregada de clientes (uno por RFC).
@@ -96,12 +106,20 @@ function DashboardContent() {
 
     let cancelled = false;
     setLoadingClientes(true);
-    expedientesService.getClientes(query).then((data) => {
-      if (cancelled) return;
-      clientesCache.current.set(key, data);
-      setClientes(data);
-      setLoadingClientes(false);
-    });
+    expedientesService
+      .getClientes(query)
+      .then((data) => {
+        if (cancelled) return;
+        clientesCache.current.set(key, data);
+        setClientes(data);
+        setLoadingClientes(false);
+        setErrorConexion(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorConexion(true);
+        setLoadingClientes(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -130,6 +148,12 @@ function DashboardContent() {
         setExpedientes(items);
         setTotalExpedientes(total);
         setLoadingExpedientes(false);
+        setErrorConexion(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorConexion(true);
+        setLoadingExpedientes(false);
       });
     return () => {
       cancelled = true;
@@ -145,6 +169,12 @@ function DashboardContent() {
       .then((data) => {
         if (cancelled) return;
         setClienteExpedientes(data);
+        setLoadingClienteExpedientes(false);
+        setErrorConexion(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorConexion(true);
         setLoadingClienteExpedientes(false);
       });
     return () => {
@@ -219,7 +249,9 @@ function DashboardContent() {
           return merged;
         });
         setTotalExpedientes(total);
+        setErrorConexion(false);
       })
+      .catch(() => setErrorConexion(true))
       .finally(() => {
         if (currentQueryKeyRef.current === requestedKey) {
           setLoadingMas(false);
@@ -278,6 +310,33 @@ function DashboardContent() {
     <div className="min-h-dvh flex flex-col">
       <DashboardHeader huerfanosPendientes={huerfanos} />
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {errorConexion && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm"
+            style={{
+              backgroundColor: "var(--color-error-bg)",
+              borderColor: "var(--color-error)",
+              color: "var(--color-error-text)",
+            }}
+          >
+            <span className="flex-1 min-w-[200px]">
+              No se pudo conectar con el servidor. Verifica tu conexión o que el
+              sistema esté disponible.
+            </span>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-md border px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors hover:bg-white"
+              style={{
+                borderColor: "var(--color-error)",
+                color: "var(--color-error-text)",
+              }}
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
         <ContadoresEstado conteos={conteos} loading={loadingConteos} />
         <FiltrosBusqueda query={query} onChange={handleQueryChange} />
 

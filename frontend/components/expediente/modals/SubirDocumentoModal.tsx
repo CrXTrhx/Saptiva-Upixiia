@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { Documento, DocumentoRequerido } from "@/lib/types";
 import { DOCUMENTOS_REQUERIDOS, DOCUMENTO_REQUERIDO_LABELS } from "@/lib/types";
+import { Select } from "@/components/ui/Select";
 
 // =============================================================================
 // P9 — Modal Subir / Reemplazar Documento
@@ -246,19 +247,18 @@ export default function SubirDocumentoModal({
             <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider" style={{ color: "#5C5957" }}>
               Tipo de documento
             </label>
-            <select
+            <Select
+              ariaLabel="Tipo de documento"
               value={tipo}
-              onChange={(e) => setTipo(e.target.value as DocumentoRequerido)}
-              className={`${esReemplazo ? "mb-1.5 cursor-not-allowed" : "mb-4 cursor-pointer"} w-full rounded-lg px-3 py-2.5 text-[13px] transition-colors`}
-              style={{ border: "1px solid #E5DED6", color: esReemplazo ? "#5C5957" : "#302F2D", backgroundColor: esReemplazo ? "#F4F0EB" : "#FFFFFF", outline: "none" }}
-              onFocus={(e) => { if (!esReemplazo) e.currentTarget.style.borderColor = "#F19B42"; }}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "#E5DED6")}
+              onChange={(v) => setTipo(v as DocumentoRequerido)}
+              options={availableTipos.map((dr) => ({
+                value: dr,
+                label: DOCUMENTO_REQUERIDO_LABELS[dr],
+              }))}
               disabled={esReemplazo || availableTipos.length === 0}
-            >
-              {availableTipos.map((dr) => (
-                <option key={dr} value={dr}>{DOCUMENTO_REQUERIDO_LABELS[dr]}</option>
-              ))}
-            </select>
+              className={`${esReemplazo ? "mb-1.5" : "mb-4"} w-full rounded-lg px-3 py-2.5 text-[13px] transition-colors focus:outline-2 focus:outline-offset-0 focus:outline-[#F19B42]`}
+              style={{ border: "1px solid #E5DED6", color: esReemplazo ? "#5C5957" : "#302F2D", backgroundColor: esReemplazo ? "#F4F0EB" : "#FFFFFF" }}
+            />
             {esReemplazo && (
               <p className="mb-4 flex items-center gap-1 text-[11px]" style={{ color: "#989396" }}>
                 <Lock size={11} strokeWidth={2} /> El tipo no se puede cambiar al reemplazar un documento.
